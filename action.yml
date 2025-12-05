@@ -349,32 +349,50 @@ runs:
         fi
         echo "::endgroup::"
 
-    # 3.3 - Recuperação de URL (Apenas se achou histórico)
+    # 3.5 - Recuperação de URL (Apenas se achou histórico)
     - id: recover_url
-      if: steps.check_history.outputs.found == 'true'
+      # Nota: 'analyze_search' é o ID do passo 3.4 definido anteriormente
+      if: steps.analyze_search.outputs.found == 'true'
       shell: bash
       env:
-        COMMIT_SHA: ${{ steps.check_history.outputs.commit_sha }}
+        GH_TOKEN: ${{ inputs.token }}
+        COMMIT_SHA: ${{ steps.analyze_search.outputs.commit_sha }}
+        PREFIX: ${{ inputs.report_branch_prefix }}
       run: |
         echo "::group::🔗 Idempotency: Recovering PR URL"
+        set -euo pipefail
+
+        echo "🔍 1. Buscando branches remotas que contém o commit $COMMIT_SHA..."
         
-        # Tenta achar a branch remota que contem este commit
-        BRANCH=$(git branch -r --contains "$COMMIT_SHA" | grep "origin/ops/" | head -n 1 | sed 's/origin\///' | xargs)
+        # Estratégia de Busca:
+        # 1. git branch -r --contains: Lista branches remotas com esse commit
+        # 2. grep "$PREFIX": Filtra apenas as branches de relatório (ex: sentinel/audit/...)
+        # 3. sed: Remove o prefixo 'origin/' para ter o nome limpo da branch
         
-        if [ -n "$BRANCH" ]; then
-           echo "🔍 Found branch: $BRANCH"
-           # Tenta achar a PR aberta para esta branch
-           URL=$(gh pr list --head "$BRANCH" --json url -q .[0].url)
-           
-           if [ -n "$URL" ]; then
-              echo "✅ Recovered PR URL: $URL"
-              echo "pr_url=$URL" >> "$GITHUB_OUTPUT"
+        TARGET_BRANCH=$(git branch -r --contains "$COMMIT_SHA" \
+          | grep "$PREFIX" \
+          | head -n 1 \
+          | sed 's/^[[:space:]]*origin\///' \
+          | xargs || true)
+
+        if [ -n "$TARGET_BRANCH" ]; then
+           echo "   -> Branch de relatório identificada: $TARGET_BRANCH"
+
+           echo "🔍 2. Consultando API do GitHub por PRs abertas..."
+           # Busca PR associada à branch head encontrada
+           PR_URL=$(gh pr list --head "$TARGET_BRANCH" --state open --json url -q .[0].url || true)
+
+           if [ -n "$PR_URL" ] && [ "$PR_URL" != "null" ]; then
+              echo "✅ URL recuperada com sucesso: $PR_URL"
+              echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
            else
-              echo "⚠️ Branch found but no open PR detected."
+              echo "⚠️ Aviso: Branch encontrada, mas não há PR aberta associada."
            fi
         else
-           echo "⚠️ Could not resolve branch from commit $COMMIT_SHA."
+           echo "⚠️ Aviso: Não foi possível rastrear a branch a partir do commit."
+           echo "   Causa provável: A branch de relatório antiga foi deletada, mas o commit persiste (dangling)."
         fi
+        
         echo "::endgroup::"
 
     # ==================================================================
