@@ -1,6 +1,6 @@
-# Malnati/git-report-ops@v1.1.2
+# Malnati/git-report-ops@v1.1.3
 name: "Git Report Ops"
-description: "Engine GitOps v1.1.2: Modular, com validação passo-a-passo e templates customizáveis."
+description: "Engine GitOps v1.1.3: Modularidade granular para debug preciso de assinatura e histórico."
 author: "Ricardo Malnati"
 
 branding:
@@ -120,16 +120,16 @@ runs:
         fi
         echo "::endgroup::"
 
-    # 2.1 - Preparação do Histórico (Fetch)
-    - id: fetch_history
+    # 2.1 - Preparação do Histórico (Check Rápido)
+    - id: fetch_context
       if: steps.check_branch.outputs.skip != 'true'
       shell: bash
       env:
         HEAD_REF: ${{ github.head_ref }}
       run: |
-        echo "::group::📚 Git History: Fetching Context"
+        echo "::group::📚 Git History: Context Check"
         if [ -f .git/shallow ]; then
-           echo "⚙️ Shallow repo detected. Unshallowing..."
+           echo "⚙️ Shallow repo detected. Fetching depth 1 for author check..."
            git fetch --depth=1 origin "$HEAD_REF" 2>/dev/null || true
         fi
         echo "✅ Context fetched."
@@ -159,39 +159,60 @@ runs:
     # BLOCK 3: IDEMPOTENCY CHECK
     # ==================================================================
 
-    # 3.0 - Cálculo da Assinatura
-    - id: calc_signature
-      # IF: Nem branch nem autor bloquearam
+    # 3.0 - Descoberta de Arquivos (File Discovery)
+    # Lista arquivos, aplica filtros e gera lista limpa para hash
+    - id: file_discovery
       if: steps.check_branch.outputs.skip != 'true' && steps.check_author.outputs.skip != 'true'
       shell: bash
       env:
         EXTS: ${{ inputs.scan_extensions }}
         EXCLUDE: ${{ inputs.scan_exclude }}
       run: |
-        echo "::group::🧮 Idempotency: Calculating Signature"
+        echo "::group::🧮 Idempotency: File Discovery"
         set -euo pipefail
         
         ALL_FILES="/tmp/files_all.txt"
-        EXT_MATCHES="/tmp/files_extensions.txt"
-        FINAL_LIST="/tmp/files_final.txt"
-        HASH_LIST="/tmp/object_hashes.txt"
-
+        FINAL_LIST="/tmp/files_to_hash.txt"
+        
+        # 1. Listar tudo
         git ls-tree -r HEAD --name-only > "$ALL_FILES"
-        grep -E "\.($EXTS)$" "$ALL_FILES" > "$EXT_MATCHES" || true
-        grep -vE "$EXCLUDE" "$EXT_MATCHES" > "$FINAL_LIST" || true
+        
+        # 2. Filtrar e Excluir
+        grep -E "\.($EXTS)$" "$ALL_FILES" | grep -vE "$EXCLUDE" > "$FINAL_LIST" || true
+        
+        COUNT=$(wc -l < "$FINAL_LIST")
+        echo "✅ Found $COUNT files matching criteria."
+        
+        # Exporta caminho da lista para o próximo passo
+        echo "file_list=$FINAL_LIST" >> "$GITHUB_OUTPUT"
+        echo "file_count=$COUNT" >> "$GITHUB_OUTPUT"
+        echo "::endgroup::"
 
-        if [ -s "$FINAL_LIST" ]; then
-           xargs -a "$FINAL_LIST" -d '\n' -r git hash-object > "$HASH_LIST"
-           SIGNATURE=$(md5sum "$HASH_LIST" | awk '{print $1}')
-        else
+    # 3.1 - Cálculo Matemático (Signature Calculation)
+    # Lê a lista de arquivos e gera o hash MD5 único
+    - id: calc_signature
+      if: steps.check_branch.outputs.skip != 'true' && steps.check_author.outputs.skip != 'true'
+      shell: bash
+      env:
+        FILE_LIST: ${{ steps.file_discovery.outputs.file_list }}
+        COUNT: ${{ steps.file_discovery.outputs.file_count }}
+      run: |
+        echo "::group::🧮 Idempotency: Signature Calculation"
+        set -euo pipefail
+        
+        if [ "$COUNT" -eq "0" ]; then
            SIGNATURE="empty"
+        else
+           # xargs -a lê do arquivo gerado no passo anterior
+           xargs -a "$FILE_LIST" -d '\n' -r git hash-object > /tmp/hashes.txt
+           SIGNATURE=$(md5sum /tmp/hashes.txt | awk '{print $1}')
         fi
 
         echo "CODE_SIGNATURE=$SIGNATURE" >> "$GITHUB_ENV"
         echo "🔑 Signature: $SIGNATURE"
         echo "::endgroup::"
 
-    # 3.1 - Preparação do Relatório (Injeção de Metadata)
+    # 3.2 - Preparação do Relatório (Metadata Injection)
     - id: prep_report
       if: steps.check_branch.outputs.skip != 'true' && steps.check_author.outputs.skip != 'true'
       shell: bash
@@ -212,28 +233,47 @@ runs:
         echo "✅ Metadata added."
         echo "::endgroup::"
 
-    # 3.2 - Busca de Histórico (Idempotência)
-    - id: check_history
+    # 3.3 - Preparação do Histórico Profundo (Fetch Deep)
+    # Garante que o git tem dados para buscar no passado
+    - id: fetch_deep_history
+      if: steps.check_branch.outputs.skip != 'true' && steps.check_author.outputs.skip != 'true'
+      shell: bash
+      run: |
+        echo "::group::📚 Idempotency: Deep Fetch"
+        set -euo pipefail
+        
+        if [ -f .git/shallow ]; then 
+           echo "⚙️ Unshallowing repository..."
+           git fetch --unshallow 2>/dev/null || true
+        fi
+        
+        echo "🔄 Fetching all refs..."
+        git fetch --all --quiet
+        echo "::endgroup::"
+
+    # 3.4 - Busca de Assinatura (Signature Search)
+    # O grep propriamente dito
+    - id: search_signature
       if: steps.check_branch.outputs.skip != 'true' && steps.check_author.outputs.skip != 'true'
       shell: bash
       env:
         SIGNATURE: ${{ env.CODE_SIGNATURE }}
         BOT_EMAIL: ${{ inputs.bot_email }}
       run: |
-        echo "::group::🕵️ Idempotency: History Search"
+        echo "::group::🕵️ Idempotency: Searching Signature"
         set -euo pipefail
-
-        if [ -f .git/shallow ]; then git fetch --unshallow 2>/dev/null || true; fi
-        git fetch --all --quiet
         
         SEARCH="> **Content Signature:** $SIGNATURE"
+        
+        # Busca otimizada por autor
         FOUND=$(git grep -I -F -l "$SEARCH" $(git rev-list --all --author="$BOT_EMAIL") -- "*.md" 2>/dev/null | head -n 1 || true)
 
         if [ -n "$FOUND" ]; then
-           echo "✅ Match found: $FOUND"
+           echo "✅ Idempotent match found: $FOUND"
            echo "found=true" >> "$GITHUB_OUTPUT"
            echo "skip=true" >> "$GITHUB_OUTPUT"
            echo "reason=SKIPPED_IDEMPOTENT" >> "$GITHUB_OUTPUT"
+           
            SHA=$(echo "$FOUND" | cut -d':' -f1)
            echo "commit_sha=$SHA" >> "$GITHUB_OUTPUT"
         else
@@ -243,17 +283,17 @@ runs:
         fi
         echo "::endgroup::"
 
-    # 3.3 - Recuperação de URL
+    # 3.5 - Recuperação de URL (Se existente)
     - id: recover_url
-      # IF: Se a busca histórica achou algo (found=true)
-      if: steps.check_history.outputs.found == 'true'
+      if: steps.search_signature.outputs.found == 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
-        COMMIT_SHA: ${{ steps.check_history.outputs.commit_sha }}
+        COMMIT_SHA: ${{ steps.search_signature.outputs.commit_sha }}
         PREFIX: ${{ inputs.report_branch_prefix }}
       run: |
         echo "::group::🔗 Idempotency: Recovering URL"
+        
         TARGET=$(git branch -r --contains "$COMMIT_SHA" | grep "$PREFIX" | head -n 1 | sed 's/^[[:space:]]*origin\///' | xargs || true)
         
         if [ -n "$TARGET" ]; then
@@ -271,8 +311,8 @@ runs:
 
     # 4.0 - Operações Git
     - id: git_push
-      # IF: Nenhum bloqueio anterior (Circuit 1 & 2 + Idempotency)
-      if: steps.check_branch.outputs.skip != 'true' && steps.check_author.outputs.skip != 'true' && steps.check_history.outputs.skip != 'true'
+      # O If verifica o output do ÚLTIMO passo de decisão (search_signature)
+      if: steps.check_branch.outputs.skip != 'true' && steps.check_author.outputs.skip != 'true' && steps.search_signature.outputs.skip != 'true'
       shell: bash
       env:
         HEAD_REF: ${{ github.head_ref }}
@@ -291,7 +331,7 @@ runs:
 
     # 4.1 - Construção do Corpo (Template)
     - id: build_body
-      if: steps.check_branch.outputs.skip != 'true' && steps.check_author.outputs.skip != 'true' && steps.check_history.outputs.skip != 'true'
+      if: steps.check_branch.outputs.skip != 'true' && steps.check_author.outputs.skip != 'true' && steps.search_signature.outputs.skip != 'true'
       shell: bash
       env:
         PR_NUM: ${{ github.event.pull_request.number }}
@@ -314,7 +354,6 @@ runs:
         
         envsubst < "$TEMPLATE_SOURCE" > "$BODY_FILE"
         
-        # Injeção Obrigatória da Assinatura (CORRIGIDO)
         echo "" >> "$BODY_FILE"
         echo "" >> "$BODY_FILE"
         
@@ -323,7 +362,7 @@ runs:
 
     # 4.2 - Gerenciamento da PR
     - id: publish
-      if: steps.check_branch.outputs.skip != 'true' && steps.check_author.outputs.skip != 'true' && steps.check_history.outputs.skip != 'true'
+      if: steps.check_branch.outputs.skip != 'true' && steps.check_author.outputs.skip != 'true' && steps.search_signature.outputs.skip != 'true'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
@@ -355,25 +394,25 @@ runs:
       shell: bash
       if: always()
       env:
-        # Status dos Circuit Breakers
+        # Circuit Breakers
         S_BRANCH: ${{ steps.check_branch.outputs.reason }}
         S_AUTHOR: ${{ steps.check_author.outputs.reason }}
-        # Status de Idempotência
-        S_IDEM: ${{ steps.check_history.outputs.reason }}
-        # Status de Publicação
+        # Idempotency
+        S_IDEM: ${{ steps.search_signature.outputs.reason }}
+        # Publication
         S_PUB: ${{ steps.publish.outputs.status }}
-        # URLs (Recuperada ou Criada)
+        # URLs
         URL_REC: ${{ steps.recover_url.outputs.pr_url }}
         URL_PUB: ${{ steps.publish.outputs.pr_url }}
       run: |
-        # Prioridade de Status
+        # Prioridade de Status (Quem definiu o estado final?)
         if [ -n "$S_PUB" ]; then FINAL_STATUS="$S_PUB";
         elif [ -n "$S_IDEM" ]; then FINAL_STATUS="$S_IDEM";
         elif [ -n "$S_AUTHOR" ]; then FINAL_STATUS="$S_AUTHOR";
         elif [ -n "$S_BRANCH" ]; then FINAL_STATUS="$S_BRANCH";
         else FINAL_STATUS="UNKNOWN"; fi
         
-        # Prioridade de URL (Se publicou, usa a nova. Se recuperou, usa a antiga)
+        # Prioridade de URL
         if [ -n "$URL_PUB" ]; then FINAL_URL="$URL_PUB";
         else FINAL_URL="$URL_REC"; fi
 
