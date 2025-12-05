@@ -51,29 +51,56 @@ runs:
   using: "composite"
   steps:
     # ==================================================================
-    # BLOCK 1: INITIALIZATION & VALIDATION
+    # BLOCK 1: INITIALIZATION & VALIDATION (Split)
     # ==================================================================
-    - id: setup
+    
+    # 1.0 - Validação de Segurança
+    - id: validate_token
       shell: bash
       env:
         TOKEN: ${{ inputs.token }}
+      run: |
+        echo "::group::🔐 Validation: Token"
+        if [ -z "$TOKEN" ]; then 
+           echo "❌ Error: Input 'token' is missing."
+           echo "   Please provide a valid GitHub Token with permissions:"
+           echo "   - contents: write"
+           echo "   - pull-requests: write"
+           exit 1
+        fi
+        echo "✅ Token present."
+        echo "::endgroup::"
+
+    # 1.1 - Validação de Arquivo (Input)
+    - id: validate_report
+      shell: bash
+      env:
         REPORT: ${{ inputs.report_file }}
       run: |
-        echo "::group::🔧 Git Report Ops: Setup"
-        
-        # Valida Inputs Obrigatórios
-        if [ -z "$TOKEN" ]; then 
-           echo "❌ Error: Token missing."; exit 1; 
-        fi
+        echo "::group::📄 Validation: Report File"
         if [ ! -f "$REPORT" ]; then 
-           echo "❌ Error: Report file not found at $REPORT"; exit 1; 
+           echo "❌ Error: Report file not found at: '$REPORT'"
+           echo "   Make sure the previous step generated the artifact correctly."
+           exit 1
         fi
+        echo "✅ Report file found: $REPORT"
+        echo "::endgroup::"
+
+    # 1.2 - Configuração de Ambiente Git
+    - id: git_config
+      shell: bash
+      env:
+        BOT_EMAIL: ${{ inputs.bot_email }}
+      run: |
+        echo "::group::🔧 Git Config: Identity"
         
-        # Configura identidade Git
+        # Configura identidade para este job
         git config user.name "git-report-ops-bot"
-        git config user.email "${{ inputs.bot_email }}"
+        git config user.email "$BOT_EMAIL"
         
-        echo "✅ Setup complete."
+        echo "✅ Git identity configured:"
+        echo "   Name:  git-report-ops-bot"
+        echo "   Email: $BOT_EMAIL"
         echo "::endgroup::"
 
     # ==================================================================
