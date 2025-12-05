@@ -1,4 +1,4 @@
-# Malnati/git-report-ops@v1.1.1
+# Malnati/git-report-ops@v1.1.2
 name: "Git Report Ops"
 description: "Engine GitOps v1.1.1: Fix de newlines e formatação aprimorada da PR."
 author: "Ricardo Malnati"
@@ -102,43 +102,71 @@ runs:
         echo "   Name:  git-report-ops-bot"
         echo "   Email: $BOT_EMAIL"
         echo "::endgroup::"
+        
+    # ==================================================================
+    # BLOCK 2: CIRCUIT BREAKER (Split)
+    # ==================================================================
 
-    # ==================================================================
-    # BLOCK 2: CIRCUIT BREAKER (ANTI-LOOP PROTECTION)
-    # ==================================================================
-    - id: circuit_breaker
+    # 2.0 - Proteção por Nome da Branch
+    - id: check_branch
       shell: bash
       env:
         HEAD_REF: ${{ github.head_ref }}
         PREFIX: ${{ inputs.report_branch_prefix }}
+      run: |
+        echo "::group::🛡️ Anti-Loop: Branch Name Check"
+        echo "Target Branch: $HEAD_REF"
+        echo "Report Prefix: $PREFIX"
+        
+        if [[ "$HEAD_REF" == "$PREFIX"* ]]; then
+           echo "🛑 Loop Detected: Running inside a report branch."
+           echo "skip=true" >> "$GITHUB_OUTPUT"
+           echo "reason=SKIPPED_LOOP" >> "$GITHUB_OUTPUT"
+        else
+           echo "✅ Branch check passed."
+           echo "skip=false" >> "$GITHUB_OUTPUT"
+        fi
+        echo "::endgroup::"
+
+    # 2.1 - Preparação do Histórico (Fetch)
+    # Só roda se o passo anterior não bloqueou
+    - id: fetch_history
+      if: steps.check_branch.outputs.skip != 'true'
+      shell: bash
+      env:
+        HEAD_REF: ${{ github.head_ref }}
+      run: |
+        echo "::group::📚 Git History: Fetching Context"
+        if [ -f .git/shallow ]; then
+           echo "⚙️ Shallow repo detected. Fetching depth 1 for author check..."
+           git fetch --depth=1 origin "$HEAD_REF" 2>/dev/null || true
+        else
+           echo "✅ Full history available."
+        fi
+        echo "::endgroup::"
+
+    # 2.2 - Proteção por Autor do Commit
+    # Só roda se o passo 2.0 não bloqueou
+    - id: check_author
+      if: steps.check_branch.outputs.skip != 'true'
+      shell: bash
+      env:
         BOT_EMAIL: ${{ inputs.bot_email }}
       run: |
-        echo "::group::🛡️ Loop Protection"
-        
-        # Check 1: Branch Name
-        if [[ "$HEAD_REF" == "$PREFIX"* ]]; then 
-           echo "🛑 Loop Branch: Skipping execution inside report branch."
-           echo "skip=true" >> "$GITHUB_OUTPUT"
-           echo "reason=SKIPPED_LOOP" >> "$GITHUB_OUTPUT"
-           exit 0
-        fi
-        
-        # Check 2: Last Commit Author
-        if [ -f .git/shallow ]; then 
-           git fetch --depth=1 origin "$HEAD_REF" 2>/dev/null || true
-        fi
+        echo "::group::🛡️ Anti-Loop: Commit Author Check"
         
         LAST_AUTHOR=$(git log -1 --pretty=format:'%ae')
-        
-        if [[ "$LAST_AUTHOR" == "$BOT_EMAIL" ]]; then 
-           echo "🛑 Loop Bot: Last commit by bot detected."
+        echo "Last Commit Author: $LAST_AUTHOR"
+        echo "Bot Email: $BOT_EMAIL"
+
+        if [[ "$LAST_AUTHOR" == "$BOT_EMAIL" ]]; then
+           echo "🛑 Loop Detected: Last commit was made by the bot."
            echo "skip=true" >> "$GITHUB_OUTPUT"
            echo "reason=SKIPPED_LOOP" >> "$GITHUB_OUTPUT"
-           exit 0
+        else
+           echo "✅ Author check passed."
+           echo "skip=false" >> "$GITHUB_OUTPUT"
         fi
-        
-        echo "✅ Safe to proceed."
-        echo "skip=false" >> "$GITHUB_OUTPUT"
         echo "::endgroup::"
 
     # ==================================================================
