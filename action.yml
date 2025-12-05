@@ -394,38 +394,60 @@ runs:
         fi
         
         echo "::endgroup::"
+# ==================================================================
+    # BLOCK 4: PUBLISH (Split)
+    # ==================================================================
 
-    # ==================================================================
-    # BLOCK 4: PUBLISH (BRANCH & PR MANAGEMENT)
-    # ==================================================================
-    - id: publish
-      if: steps.circuit_breaker.outputs.skip != 'true' && steps.idempotency.outputs.skip != 'true'
+    # 4.0 - Operações Git (Branch & Push)
+    - id: git_push
+      if: steps.circuit_breaker.outputs.skip != 'true' && steps.analyze_search.outputs.skip != 'true'
       shell: bash
       env:
-        GH_TOKEN: ${{ inputs.token }}
-        REPORT_FILE: ${{ inputs.report_file }}
         HEAD_REF: ${{ github.head_ref }}
-        PR_NUM: ${{ github.event.pull_request.number }}
         PREFIX: ${{ inputs.report_branch_prefix }}
-        TITLE: ${{ inputs.pr_title }}
-        USER_BODY: ${{ inputs.pr_body }}
-        SIGNATURE: ${{ env.CODE_SIGNATURE }}
-        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        REPORT: ${{ inputs.report_file }}
       run: |
-        echo "::group::🚀 Publishing Report"
+        echo "::group::🚀 Git: Pushing Report Branch"
+        set -euo pipefail
         
         REPORT_BRANCH="${PREFIX}/${HEAD_REF}"
+        echo "Target Branch: $REPORT_BRANCH"
         
-        # 1. Git Operations (Branch & Push)
+        # Garante que estamos na origem limpa
         git checkout "$HEAD_REF"
+        
+        # Cria ou reseta a branch de relatório
         git checkout -B "$REPORT_BRANCH"
-        git add "$REPORT_FILE"
+        
+        # Adiciona o arquivo (que já foi modificado com metadados no step 3.1)
+        git add "$REPORT"
+        
+        # Commit com skip ci para evitar loops via push
         git commit -m "docs: automated report update [skip ci]"
+        
+        # Push forçado para garantir que a branch remota fique igual à local
         git push -f origin "$REPORT_BRANCH"
         
-        # 2. Construct PR Body (File-based to fix newlines)
-        BODY_FILE="/tmp/pr_body.md"
+        echo "branch=$REPORT_BRANCH" >> "$GITHUB_OUTPUT"
+        echo "::endgroup::"
+
+    # 4.1 - Construção do Corpo da PR (Template)
+    - id: build_body
+      if: steps.circuit_breaker.outputs.skip != 'true' && steps.analyze_search.outputs.skip != 'true'
+      shell: bash
+      env:
+        PR_NUM: ${{ github.event.pull_request.number }}
+        HEAD_REF: ${{ github.head_ref }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        SIGNATURE: ${{ env.CODE_SIGNATURE }}
+        USER_BODY: ${{ inputs.pr_body }}
+      run: |
+        echo "::group::📝 PR: Building Description"
         
+        BODY_FILE="/tmp/pr_description.md"
+        DATE=$(date -u)
+        
+        # Construção segura do arquivo via Heredoc sem expansão de variáveis indesejadas
         cat <<EOF > "$BODY_FILE"
         $USER_BODY
 
@@ -438,23 +460,42 @@ runs:
         | **PR Origem** | #$PR_NUM (\`$HEAD_REF\`) |
         | **Commit Base** | \`$HEAD_SHA\` |
         | **Assinatura** | \`$SIGNATURE\` |
-        | **Data (UTC)** | $(date -u) |
+        | **Data (UTC)** | $DATE |
 
         EOF
         
-        echo "📡 Managing Pull Request..."
+        echo "Body file generated at $BODY_FILE"
+        echo "body_file=$BODY_FILE" >> "$GITHUB_OUTPUT"
+        echo "::endgroup::"
+
+    # 4.2 - Gerenciamento da PR (Create/Edit)
+    - id: publish
+      if: steps.circuit_breaker.outputs.skip != 'true' && steps.analyze_search.outputs.skip != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        HEAD_REF: ${{ github.head_ref }}
+        REPORT_BRANCH: ${{ steps.git_push.outputs.branch }}
+        TITLE: ${{ inputs.pr_title }}
+        BODY_FILE: ${{ steps.build_body.outputs.body_file }}
+      run: |
+        echo "::group::📡 API: Managing Pull Request"
+        set -euo pipefail
         
-        # 3. Create/Update PR
+        echo "Target: $HEAD_REF <- $REPORT_BRANCH"
+        
+        # 1. Tenta Criar (Falha se já existir, mas o '|| true' permite continuar)
         gh pr create \
           --base "$HEAD_REF" \
           --head "$REPORT_BRANCH" \
           --title "$TITLE" \
-          --body-file "$BODY_FILE" || true
+          --body-file "$BODY_FILE" || echo "PR creation skipped (likely exists)"
           
+        # 2. Recupera URL (Seja nova ou existente)
         PR_URL=$(gh pr view "$REPORT_BRANCH" --json url -q .url)
         
-        # Force Body Update (for existing PRs)
-        gh pr edit "$PR_URL" --body-file "$BODY_FILE" || true
+        # 3. Força atualização do Body (Para atualizar metadados em PRs existentes)
+        gh pr edit "$PR_URL" --body-file "$BODY_FILE" || echo "Failed to edit PR body"
         
         echo "✅ PR Link: $PR_URL"
         echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
