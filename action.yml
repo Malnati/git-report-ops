@@ -252,40 +252,98 @@ runs:
         mv "$TEMP" "$REPORT"
         echo "✅ Metadata added to $REPORT"
         echo "::endgroup::"
+        
+    # 3.2 - Preparação do Histórico Git
+    # Garante que temos o histórico completo para buscar referências antigas
+    - id: fetch_history
+      if: steps.check_branch.outputs.skip != 'true' && steps.check_author.outputs.skip != 'true'
+      shell: bash
+      run: |
+        echo "::group::📚 Idempotency: Fetching History"
+        set -euo pipefail
 
-    # 3.2 - Busca de Histórico (Idempotência)
-    - id: check_history
+        if [ -f .git/shallow ]; then 
+           echo "⚙️  Repo is shallow. Unshallowing..."
+           git fetch --unshallow 2>/dev/null || true
+        else
+           echo "✅ Repo is already deep."
+        fi
+
+        echo "🔄 Fetching all refs..."
+        git fetch --all --quiet
+        echo "::endgroup::"
+
+    # 3.3 - Execução da Busca (Search Strategy)
+    # Filtra commits do bot e busca a assinatura dentro deles
+    - id: search_history
       if: steps.check_branch.outputs.skip != 'true' && steps.check_author.outputs.skip != 'true'
       shell: bash
       env:
         SIGNATURE: ${{ env.CODE_SIGNATURE }}
         BOT_EMAIL: ${{ inputs.bot_email }}
       run: |
-        echo "::group::🕵️ Idempotency: History Search"
-        
-        # Garante histórico para busca
-        if [ -f .git/shallow ]; then 
-           echo "⚙️ Unshallowing repo for deep search..."
-           git fetch --unshallow 2>/dev/null || true
-        fi
-        git fetch --all --quiet
-        
-        SEARCH="> **Content Signature:** $SIGNATURE"
-        echo "🔍 Searching for signature in bot commits..."
-        
-        FOUND=$(git grep -I -F -l "$SEARCH" $(git rev-list --all --author="$BOT_EMAIL") -- "*.md" 2>/dev/null | head -n 1 || true)
+        echo "::group::🕵️ Idempotency: Scanning Commits"
+        set -euo pipefail
 
-        if [ -n "$FOUND" ]; then
-           echo "✅ Idempotent match found: $FOUND"
+        # Arquivos temporários
+        COMMITS_FILE="/tmp/bot_commits.txt"
+        RESULT_FILE="/tmp/found_ref.txt"
+        
+        SEARCH_STRING="> **Content Signature:** $SIGNATURE"
+        
+        echo "🔍 1. Filtrando commits do autor: $BOT_EMAIL"
+        # Lista todos os commits (--all) filtrados pelo autor
+        git rev-list --all --author="$BOT_EMAIL" > "$COMMITS_FILE"
+        
+        COMMIT_COUNT=$(wc -l < "$COMMITS_FILE")
+        echo "   -> Encontrados $COMMIT_COUNT commits do bot."
+
+        if [ "$COMMIT_COUNT" -eq "0" ]; then
+           echo "⚪ Nenhum commit anterior do bot para analisar."
+           echo "" > "$RESULT_FILE"
+        else
+           echo "🔍 2. Buscando assinatura nos arquivos Markdown..."
+           echo "   Key: '$SEARCH_STRING'"
+           
+           # Passa a lista de commits para o git grep via xargs
+           # -I: ignora binários, -F: string fixa, -l: apenas nomes de arquivos
+           # || true impede falha se não encontrar nada
+           cat "$COMMITS_FILE" | xargs -r git grep -I -F -l "$SEARCH_STRING" -- "*.md" | head -n 1 > "$RESULT_FILE" || true
+        fi
+        
+        # Debug do resultado
+        if [ -s "$RESULT_FILE" ]; then
+           echo "✅ Encontrado: $(cat "$RESULT_FILE")"
+        else
+           echo "⚪ Nada encontrado."
+        fi
+        
+        echo "::endgroup::"
+
+    # 3.4 - Análise do Resultado e Definição de Outputs
+    - id: analyze_search
+      if: steps.check_branch.outputs.skip != 'true' && steps.check_author.outputs.skip != 'true'
+      shell: bash
+      run: |
+        echo "::group::decission Idempotency: Decision Logic"
+        set -euo pipefail
+        
+        RESULT_FILE="/tmp/found_ref.txt"
+        
+        if [ -s "$RESULT_FILE" ]; then
+           FOUND_REF=$(cat "$RESULT_FILE")
+           
+           echo "✅ Relatório Válido Encontrado: $FOUND_REF"
            echo "found=true" >> "$GITHUB_OUTPUT"
            echo "skip=true" >> "$GITHUB_OUTPUT"
            echo "reason=SKIPPED_IDEMPOTENT" >> "$GITHUB_OUTPUT"
            
-           # Extrai SHA do commit onde o arquivo foi achado para o próximo passo
-           SHA=$(echo "$FOUND" | cut -d':' -f1)
+           # Extrai SHA do commit (formato SHA:path/to/file)
+           SHA=$(echo "$FOUND_REF" | cut -d':' -f1)
            echo "commit_sha=$SHA" >> "$GITHUB_OUTPUT"
+           echo "   -> Commit SHA extraído: $SHA"
         else
-           echo "📝 No match found. Content is new."
+           echo "📝 Nenhuma correspondência encontrada. O conteúdo é novo."
            echo "found=false" >> "$GITHUB_OUTPUT"
            echo "skip=false" >> "$GITHUB_OUTPUT"
         fi
