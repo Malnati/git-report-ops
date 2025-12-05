@@ -162,16 +162,29 @@ runs:
            echo "skip=true" >> "$GITHUB_OUTPUT"
            echo "reason=SKIPPED_IDEMPOTENT" >> "$GITHUB_OUTPUT"
            
-           # Tenta recuperar a URL da PR associada a essa branch (heuristic)
-           # Isso é um "best effort" para retornar a URL mesmo sem criar nada
-           BRANCH_NAME=$(git name-rev --name-only $(echo "$FOUND_REF" | cut -d':' -f1) || echo "")
-           # Se conseguirmos inferir a branch, tentamos pegar a PR via CLI no próximo passo se necessário
-           # Por enquanto, apenas sinalizamos que achamos.
+           # Tenta recuperar a URL da PR associada a essa branch de relatório
+           # Extrai o SHA do commit encontrado
+           COMMIT_SHA=$(echo "$FOUND_REF" | cut -d':' -f1)
+           
+           # Descobre a branch que aponta para esse commit (pode ser várias, pegamos a primeira do bot)
+           EXISTING_BRANCH=$(git branch -r --contains "$COMMIT_SHA" | grep "origin/ops/" | head -n 1 | sed 's/origin\///' | xargs)
+           
+           if [ -n "$EXISTING_BRANCH" ]; then
+              echo "🔍 Branch encontrada: $EXISTING_BRANCH"
+              # Busca a PR aberta para essa branch
+              EXISTING_URL=$(gh pr list --head "$EXISTING_BRANCH" --json url -q .[0].url)
+              
+              if [ -n "$EXISTING_URL" ]; then
+                 echo "🔗 PR Recuperada: $EXISTING_URL"
+                 echo "pr_url=$EXISTING_URL" >> "$GITHUB_OUTPUT"
+              fi
+           fi
         else
-           echo "📝 Código novo detectado. Prosseguindo com publicação."
-           echo "skip=false" >> "$GITHUB_OUTPUT"
-        fi
-        echo "::endgroup::"
+          echo "📝 Código novo detectado (Assinatura nova ou inexistente)."
+          echo "   Prosseguindo com a publicação..."
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+       fi
+       echo "::endgroup::"
 
     # ------------------------------------------------------------------
     # STEP 3: PUBLISH (Branch & PR)
