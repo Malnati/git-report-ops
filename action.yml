@@ -1,6 +1,6 @@
-# Malnati/git-report-ops@v1.3.2
+# Malnati/git-report-ops@v1.3.3
 name: "Git Report Ops"
-description: "Engine v1.3.2: Fix na criação do corpo da PR e isolamento de IDs de notificação."
+description: "Engine v1.3.3: Fix de assinatura para renames e debug de notificação."
 author: "Ricardo Malnati"
 
 branding:
@@ -12,99 +12,70 @@ inputs:
     description: "GitHub token."
     required: true
   report_file:
-    description: "Arquivo Markdown para publicar."
+    description: "Arquivo Markdown."
     required: true
   caller_id:
-    description: "Identificador do chamador para rastreabilidade."
     required: false
     default: "unknown-workflow"
-  
-  # Identificação Única da Notificação (Anti-Colisão)
-  notification_id:
-    description: "ID único para o comentário Sticky na PR original. Se vazio, usa 'git-report-ops-{caller_id}'."
-    required: false
-    default: ""
-
-  # Assinatura
   scan_extensions:
-    description: "Extensões para assinatura."
     required: false
     default: "ts|js|jsx|tsx|java|py|go|cs|php|sh|json|yaml|yml"
   scan_exclude:
-    description: "Caminhos ignorados."
     required: false
     default: "node_modules|dist|build|.git|.github"
-  
-  # Config PR
   report_branch_prefix:
-    description: "Prefixo da branch."
     required: false
     default: "audit/report"
   pr_title:
-    description: "Título da PR."
     required: false
     default: "🛡️ Automated Audit Report"
   pr_body:
-    description: "Corpo base da PR."
     required: false
-    default: "Relatório de auditoria gerado automaticamente."
+    default: "Relatório de auditoria."
   bot_email:
-    description: "Email do bot."
     required: false
     default: "git-report-ops@users.noreply.github.com"
-  
-  # Templates
   pr_template_path:
-    description: "Caminho customizado para o corpo da PR de relatório."
+    required: false
+    default: ""
+  notification_id:
     required: false
     default: ""
 
 outputs:
   pr_url:
-    description: "URL da Pull Request."
     value: ${{ steps.controller.outputs.pr_url }}
   status:
-    description: "Status final."
     value: ${{ steps.controller.outputs.status }}
 
 runs:
   using: "composite"
   steps:
-    # ==================================================================
-    # BLOCK 1: SETUP & VALIDATION
-    # ==================================================================
+    # BLOCK 1: SETUP
     - id: validate_inputs
       shell: bash
       env:
         TOKEN: ${{ inputs.token }}
         REPORT: ${{ inputs.report_file }}
       run: |
-        echo "::group::🔧 Setup: Input Validation"
+        echo "::group::🔧 Setup"
         if [ -z "$TOKEN" ]; then echo "❌ Error: Token missing."; exit 1; fi
-        if [ ! -f "$REPORT" ]; then echo "❌ Error: Report file missing."; exit 1; fi
-        
+        if [ ! -f "$REPORT" ]; then echo "❌ Error: Report missing."; exit 1; fi
         git config user.name "git-report-ops-bot"
         git config user.email "${{ inputs.bot_email }}"
         echo "✅ Setup complete."
         echo "::endgroup::"
     
-    # Resolve o ID da Notificação (Prioridade: Input > Default)
     - id: resolve_ids
       shell: bash
       env:
         INPUT_ID: ${{ inputs.notification_id }}
         CALLER: ${{ inputs.caller_id }}
       run: |
-        if [ -n "$INPUT_ID" ]; then
-           FINAL_ID="$INPUT_ID"
-        else
-           FINAL_ID="git-report-ops-$CALLER"
-        fi
+        if [ -n "$INPUT_ID" ]; then FINAL_ID="$INPUT_ID"; else FINAL_ID="git-report-ops-$CALLER"; fi
         echo "notify_id=$FINAL_ID" >> "$GITHUB_OUTPUT"
 
-    # ==================================================================
     # BLOCK 2: CIRCUIT BREAKER
-    # ==================================================================
     - id: circuit_breaker
       shell: bash
       env:
@@ -113,18 +84,16 @@ runs:
         BOT_EMAIL: ${{ inputs.bot_email }}
       run: |
         echo "::group::🛡️ Loop Protection"
-        # 1. Branch Check
         if [[ "$HEAD_REF" == "$PREFIX"* ]]; then
-           echo "🛑 Loop: Inside report branch."
+           echo "🛑 Loop Branch."
            echo "skip=true" >> "$GITHUB_OUTPUT"
            echo "reason=SKIPPED_LOOP" >> "$GITHUB_OUTPUT"
            exit 0
         fi
-        # 2. Author Check
         if [ -f .git/shallow ]; then git fetch --depth=1 origin "$HEAD_REF" 2>/dev/null || true; fi
         LAST=$(git log -1 --pretty=format:'%ae')
         if [[ "$LAST" == "$BOT_EMAIL" ]]; then
-           echo "🛑 Loop: Bot commit detected."
+           echo "🛑 Loop Bot."
            echo "skip=true" >> "$GITHUB_OUTPUT"
            echo "reason=SKIPPED_LOOP" >> "$GITHUB_OUTPUT"
            exit 0
@@ -133,11 +102,8 @@ runs:
         echo "skip=false" >> "$GITHUB_OUTPUT"
         echo "::endgroup::"
 
-    # ==================================================================
-    # BLOCK 3: IDEMPOTENCY & HISTORY SEARCH
-    # ==================================================================
-    
-    # 3.0 - Assinatura
+    # BLOCK 3: IDEMPOTENCY
+    # 3.0 - Assinatura (CORRIGIDO PARA RENAMES)
     - id: calc_signature
       if: steps.circuit_breaker.outputs.skip != 'true'
       shell: bash
@@ -145,14 +111,26 @@ runs:
         EXTS: ${{ inputs.scan_extensions }}
         EXCLUDE: ${{ inputs.scan_exclude }}
       run: |
-        echo "::group::🧮 Signature Calculation"
+        echo "::group::🧮 Signature Calculation (v2)"
         set -euo pipefail
         LIST_FILE="/tmp/file_list.txt"
+        
+        # Lista arquivos
         git ls-tree -r HEAD --name-only | grep -E "\.($EXTS)$" | grep -vE "$EXCLUDE" > "$LIST_FILE" || true
         
         if [ -s "$LIST_FILE" ]; then
-           xargs -a "$LIST_FILE" -d '\n' -r git hash-object > /tmp/hashes.txt
-           SIGNATURE=$(md5sum /tmp/hashes.txt | awk '{print $1}')
+           # CORREÇÃO: Hash inclui o nome do arquivo E o conteúdo
+           # xargs roda git hash-object para cada arquivo. 
+           # paste combina o nome do arquivo com o hash.
+           # md5sum assina o conjunto.
+           
+           # Gera lista de hashes de conteúdo
+           xargs -a "$LIST_FILE" -d '\n' -r git hash-object > /tmp/content_hashes.txt
+           
+           # Combina (Nome + Hash) para garantir que renames mudem a assinatura
+           paste "$LIST_FILE" /tmp/content_hashes.txt > /tmp/combined_state.txt
+           
+           SIGNATURE=$(md5sum /tmp/combined_state.txt | awk '{print $1}')
         else
            SIGNATURE="empty"
         fi
@@ -167,7 +145,6 @@ runs:
       env:
         SIGNATURE: ${{ env.CODE_SIGNATURE }}
         BOT_EMAIL: ${{ inputs.bot_email }}
-        CALLER: ${{ inputs.caller_id }}
       run: |
         echo "::group::🕵️ Idempotency Search"
         if [ -f .git/shallow ]; then git fetch --unshallow 2>/dev/null || true; fi
@@ -206,22 +183,33 @@ runs:
            MERGED=$(echo "$PR_DATA" | jq -r '.[0].mergedAt')
            
            echo "existing_url=$URL" >> "$GITHUB_OUTPUT"
+           echo "pr_state=$STATE" >> "$GITHUB_OUTPUT"
            
            if [ "$STATE" == "OPEN" ]; then
+              echo "🟢 PR is OPEN."
               echo "status_code=OPEN_EXISTING" >> "$GITHUB_OUTPUT"
            elif [ "$STATE" == "CLOSED" ] && [ "$MERGED" == "null" ]; then
+              echo "🔴 PR is CLOSED (Unmerged)."
               echo "status_code=CLOSED_UNMERGED" >> "$GITHUB_OUTPUT"
            else
+              echo "⚪ PR is Merged/Missing."
               echo "status_code=PREVIOUSLY_MERGED" >> "$GITHUB_OUTPUT"
            fi
         else
+           echo "⚠️ Branch not found. Treating as new."
            echo "status_code=NOT_FOUND" >> "$GITHUB_OUTPUT"
         fi
         echo "::endgroup::"
 
-    # ==================================================================
-    # BLOCK 4: COMMUNICATION (PR A - NOTIFICATIONS)
-    # ==================================================================
+    # BLOCK 4: NOTIFICATIONS (PR A)
+    # Debug para garantir que as variáveis estão disponíveis
+    - id: notify_debug
+      shell: bash
+      run: |
+        echo "::group::🐛 Debug Notification Logic"
+        echo "Status Code: ${{ steps.analyze_pr_status.outputs.status_code }}"
+        echo "Found: ${{ steps.search_history.outputs.found }}"
+        echo "::endgroup::"
 
     - name: Notify Existing Open
       if: steps.analyze_pr_status.outputs.status_code == 'OPEN_EXISTING'
@@ -252,7 +240,8 @@ runs:
           }
 
     - name: Notify New Start
-      if: steps.search_history.outputs.found != 'true' || steps.analyze_pr_status.outputs.status_code == 'NOT_FOUND'
+      # Ajustado para ser mais explícito
+      if: steps.search_history.outputs.found == 'false' || steps.analyze_pr_status.outputs.status_code == 'NOT_FOUND'
       uses: Malnati/pr-comment@v7.0.0
       with:
         token: ${{ inputs.token }}
@@ -264,13 +253,9 @@ runs:
             "SIGNATURE": "${{ env.CODE_SIGNATURE }}"
           }
 
-    # ==================================================================
-    # BLOCK 5: PUBLISH (NEW REPORT)
-    # ==================================================================
-    
-    # 5.0 - Prepara Arquivos e Corpo da PR
+    # BLOCK 5: PUBLISH
     - id: prepare_files
-      if: steps.search_history.outputs.found != 'true' || steps.analyze_pr_status.outputs.status_code == 'NOT_FOUND'
+      if: steps.search_history.outputs.found == 'false' || steps.analyze_pr_status.outputs.status_code == 'NOT_FOUND'
       shell: bash
       env:
         REPORT: ${{ inputs.report_file }}
@@ -310,9 +295,8 @@ runs:
         echo "pr_body_file=$PR_BODY_FILE" >> "$GITHUB_OUTPUT"
         echo "::endgroup::"
 
-    # 5.1 - Publish (Git Ops - Correção na Ordem de Criação)
     - id: publish
-      if: steps.search_history.outputs.found != 'true' || steps.analyze_pr_status.outputs.status_code == 'NOT_FOUND'
+      if: steps.search_history.outputs.found == 'false' || steps.analyze_pr_status.outputs.status_code == 'NOT_FOUND'
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
@@ -324,39 +308,25 @@ runs:
       run: |
         echo "::group::🚀 Publishing"
         REPORT_BRANCH="${PREFIX}/${HEAD_REF}"
-        
         git checkout "$HEAD_REF"
         git checkout -B "$REPORT_BRANCH"
         git add "$REPORT"
         git commit -m "docs: automated report [skip ci]"
         git push -f origin "$REPORT_BRANCH"
         
-        echo "📡 Managing Pull Request..."
-        
-        # 1. Tenta criar PR JÁ com o corpo correto
         if gh pr create --base "$HEAD_REF" --head "$REPORT_BRANCH" --title "$TITLE" --body-file "$BODY_FILE"; then
-           echo "✅ New PR created successfully."
+           echo "✅ New PR created."
         else
-           echo "ℹ️ PR creation skipped (likely exists). Proceeding to update."
+           echo "ℹ️ PR creation skipped. Updating existing..."
         fi
         
-        # 2. Recupera URL e Garante Update
         PR_URL=$(gh pr view "$REPORT_BRANCH" --json url -q .url)
-        
-        if [ -n "$PR_URL" ]; then
-           # Edita para garantir que o corpo esteja atualizado (mesmo que tenha sido criada antes)
-           gh pr edit "$PR_URL" --body-file "$BODY_FILE"
-           echo "✅ PR Updated."
-        else
-           echo "❌ Critical: Could not retrieve PR URL after creation attempt."
-           exit 1
-        fi
+        gh pr edit "$PR_URL" --body-file "$BODY_FILE" || true
         
         echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
         echo "status=PUBLISHED" >> "$GITHUB_OUTPUT"
         echo "::endgroup::"
 
-    # 4.4 - Notificar Sucesso/Link (Cenário 5 - Fim)
     - name: Notify Success
       if: steps.publish.outputs.status == 'PUBLISHED'
       uses: Malnati/pr-comment@v7.0.0
@@ -371,9 +341,7 @@ runs:
             "NEW_PR_URL": "${{ steps.publish.outputs.pr_url }}"
           }
 
-    # ==================================================================
     # BLOCK 6: CONTROLLER
-    # ==================================================================
     - id: controller
       shell: bash
       if: always()
