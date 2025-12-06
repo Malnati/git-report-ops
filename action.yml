@@ -347,6 +347,7 @@ runs:
         echo "" >> "$PR_BODY_FILE"
         
         echo "pr_body_file=$PR_BODY_FILE" >> "$GITHUB_OUTPUT"
+        echo "pr_body_file=$PR_BODY_FILE"
         echo "::endgroup::"
 
     - id: publish
