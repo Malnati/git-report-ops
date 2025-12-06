@@ -57,13 +57,129 @@ runs:
       env:
         TOKEN: ${{ inputs.token }}
         REPORT: ${{ inputs.report_file }}
+        CALLER_ID: ${{ inputs.caller_id }}
+        SCAN_EXTENSIONS: ${{ inputs.scan_extensions }}
+        SCAN_EXCLUDE: ${{ inputs.scan_exclude }}
+        REPORT_BRANCH_PREFIX: ${{ inputs.report_branch_prefix }}
+        PR_TITLE: ${{ inputs.pr_title }}
+        PR_BODY: ${{ inputs.pr_body }}
+        BOT_EMAIL: ${{ inputs.bot_email }}
+        PR_TEMPLATE_PATH: ${{ inputs.pr_template_path }}
+        NOTIFICATION_ID: ${{ inputs.notification_id }}
       run: |
-        echo "::group::🔧 Setup"
-        if [ -z "$TOKEN" ]; then echo "❌ Error: Token missing."; exit 1; fi
-        if [ ! -f "$REPORT" ]; then echo "❌ Error: Report missing."; exit 1; fi
+        echo "::group::🔧 Setup & Input Validation"
+
+        # token (obrigatório)
+        if [ -z "$TOKEN" ]; then
+          echo "❌ [token] Obrigatório e não informado. Sem este token a Action não consegue chamar a API do GitHub (gh CLI, criação/edição de PR e comentários)."
+          echo "   ➜ Defina 'token' com 'secrets.GITHUB_TOKEN' ou um PAT com permissões de leitura/escrita em PRs."
+          exit 1
+        else
+          echo "✅ [token] Informado. A Action poderá criar/atualizar PRs e publicar comentários."
+        fi
+
+        # report_file (obrigatório)
+        if [ -z "$REPORT" ]; then
+          echo "❌ [report_file] Caminho não informado. A Action precisa de um arquivo Markdown para anexar ao PR."
+          echo "   ➜ Gere o relatório no job anterior e passe o caminho em 'report_file' (ex.: 'reports/pmd-report.md')."
+          exit 1
+        elif [ ! -f "$REPORT" ]; then
+          echo "❌ [report_file] Arquivo '$REPORT' não encontrado."
+          echo "   ➜ Verifique o caminho informado em 'report_file' e garanta que o arquivo é criado antes desta Action."
+          exit 1
+        else
+          echo "✅ [report_file] Encontrado em '$REPORT'. Será usado como base do relatório publicado."
+        fi
+
+        # caller_id (opcional)
+        if [ -z "$CALLER_ID" ] || [ "$CALLER_ID" = "unknown-workflow" ]; then
+          echo "ℹ️ [caller_id] Não informado. Será usado 'unknown-workflow' como identificador do workflow de origem."
+          echo "   ➜ Defina 'caller_id' (ex.: 'pmd-audit', 'eslint-audit') para rastrear qual workflow/job gerou o relatório."
+        else
+          echo "✅ [caller_id] Definido como '$CALLER_ID'. Será incluído na assinatura/meta do relatório e nas notificações."
+        fi
+
+        # scan_extensions (opcional)
+        if [ -z "$SCAN_EXTENSIONS" ]; then
+          echo "ℹ️ [scan_extensions] Não informado. A assinatura poderá considerar todos os arquivos, o que pode aumentar o custo da varredura."
+          echo "   ➜ Recomenda-se definir uma lista como 'ts|js|jsx|tsx|java|py|go|cs|php|sh|json|yaml|yml' para focar em código-fonte."
+        else
+          echo "ℹ️ [scan_extensions] Usando lista: '$SCAN_EXTENSIONS'."
+          echo "   ➜ Ajuste 'scan_extensions' para incluir/remover extensões que devem impactar a assinatura de conteúdo."
+        fi
+
+        # scan_exclude (opcional)
+        if [ -z "$SCAN_EXCLUDE" ]; then
+          echo "ℹ️ [scan_exclude] Não informado. Nenhum diretório será excluído da análise, o que pode deixá-la mais lenta."
+          echo "   ➜ Defina 'scan_exclude' (ex.: 'node_modules|dist|build|.git|.github') para ignorar pastas de build/dependências."
+        else
+          echo "ℹ️ [scan_exclude] Usando padrão de exclusão: '$SCAN_EXCLUDE'."
+          echo "   ➜ Ajuste este valor se quiser incluir ou remover diretórios ignorados na assinatura."
+        fi
+
+        # report_branch_prefix (opcional)
+        if [ -z "$REPORT_BRANCH_PREFIX" ]; then
+          echo "ℹ️ [report_branch_prefix] Não informado. Branches de relatório serão criados sem prefixo dedicado, podendo conflitar com branches de desenvolvimento."
+          echo "   ➜ Defina um prefixo (ex.: 'audit/report') para isolar branches de relatório: '<prefix>/<branch_origem>'."
+        else
+          echo "ℹ️ [report_branch_prefix] Usando prefixo: '$REPORT_BRANCH_PREFIX'."
+          echo "   ➜ Os branches de relatório serão criados como '${REPORT_BRANCH_PREFIX}/<branch_de_origem>'."
+        fi
+
+        # pr_title (opcional)
+        if [ -z "$PR_TITLE" ]; then
+          echo "ℹ️ [pr_title] Não informado. O PR poderá ser criado sem título claro, dificultando a leitura na lista de PRs."
+          echo "   ➜ Defina 'pr_title' com um título descritivo (ex.: '🛡️ Automated Audit Report')."
+        else
+          echo "ℹ️ [pr_title] Título configurado como: '$PR_TITLE'."
+          echo "   ➜ Este valor será usado como título dos PRs de relatório."
+        fi
+
+        # pr_body (opcional)
+        if [ -z "$PR_BODY" ]; then
+          echo "ℹ️ [pr_body] Não informado. Apenas o conteúdo gerado pelo template será usado no corpo do PR."
+          echo "   ➜ Defina 'pr_body' se quiser incluir um texto fixo adicional (ex.: instruções para revisores)."
+        else
+          echo "ℹ️ [pr_body] Texto base informado. Ele será injetado no template do corpo do PR."
+        fi
+
+        # bot_email (opcional, mas crítico para loop protection)
+        if [ -z "$BOT_EMAIL" ]; then
+          echo "ℹ️ [bot_email] Não informado. O git usará o email padrão do ambiente e isso pode quebrar a proteção de loop baseada no autor."
+          echo "   ➜ Defina 'bot_email' (ex.: 'git-report-ops@users.noreply.github.com') para: "
+          echo "      - identificar os commits do bot; "
+          echo "      - permitir que o circuito anti-loop funcione corretamente."
+        else
+          echo "ℹ️ [bot_email] Usando: '$BOT_EMAIL'."
+          echo "   ➜ Este email será configurado como autor dos commits e usado na verificação de loops."
+        fi
         git config user.name "git-report-ops-bot"
-        git config user.email "${{ inputs.bot_email }}"
-        echo "✅ Setup complete."
+        git config user.email "$BOT_EMAIL"
+
+        # pr_template_path (opcional)
+        if [ -z "$PR_TEMPLATE_PATH" ]; then
+          echo "ℹ️ [pr_template_path] Não informado. Será usado o template padrão em 'templates/pr-body-report.md'."
+          echo "   ➜ Defina 'pr_template_path' com o caminho de um template customizado para personalizar o corpo do PR."
+        else
+          if [ -f "$PR_TEMPLATE_PATH" ]; then
+            echo "ℹ️ [pr_template_path] Template customizado encontrado em '$PR_TEMPLATE_PATH'."
+            echo "   ➜ Ele será usado por 'envsubst' para gerar o corpo do PR."
+          else
+            echo "⚠️ [pr_template_path] Caminho informado ('$PR_TEMPLATE_PATH'), mas arquivo não existe."
+            echo "   ➜ O template padrão será usado. Verifique o caminho ou inclua o arquivo no repositório."
+          fi
+        fi
+
+        # notification_id (opcional)
+        if [ -z "$NOTIFICATION_ID" ]; then
+          echo "ℹ️ [notification_id] Não informado. Será gerado um identificador derivado de 'caller_id'."
+          echo "   ➜ Use 'notification_id' se quiser controlar manualmente o agrupamento de comentários (ex.: evitar sobrescrever mensagens entre execuções diferentes)."
+        else
+          echo "ℹ️ [notification_id] Definido como: '$NOTIFICATION_ID'."
+          echo "   ➜ Este valor será usado como chave de agrupamento para comentários na PR."
+        fi
+
+        echo "✅ Input validation complete."
         echo "::endgroup::"
     
     - id: resolve_ids
