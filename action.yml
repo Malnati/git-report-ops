@@ -1,6 +1,6 @@
-# Malnati/git-report-ops@v1.3.4
+# Malnati/git-report-ops@v1.3.5
 name: "Git Report Ops"
-description: "Engine v1.3.4: Fix de assinatura para renames e debug de notificação."
+description: "Engine v1.3.5: Fix de assinatura para renames e debug de notificação."
 author: "Ricardo Malnati"
 
 branding:
