@@ -376,10 +376,15 @@ runs:
         fi
         
         PR_URL=$(gh pr view "$REPORT_BRANCH" --json url -q .url)
-        gh pr edit "$PR_URL" --body-file "$BODY_FILE" || true
-        
+        echo "PR_URL: $PR_URL"
+        if ! gh pr edit "$PR_URL" --body-file "$BODY_FILE"; then
+          echo "🔴 Erro ao atualizar PR em $PR_URL com o arquivo $BODY_FILE" >&2
+        fi
         echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
         echo "status=PUBLISHED" >> "$GITHUB_OUTPUT"
+        
+        echo "pr_url=$PR_URL"
+        echo "status=PUBLISHED"
         echo "::endgroup::"
 
     - name: Notify Success
