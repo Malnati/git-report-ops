@@ -1,6 +1,6 @@
-# Malnati/git-report-ops@v1.3.3
+# Malnati/git-report-ops@v1.3.4
 name: "Git Report Ops"
-description: "Engine v1.3.3: Fix de assinatura para renames e debug de notificação."
+description: "Engine v1.3.4: Fix de assinatura para renames e debug de notificação."
 author: "Ricardo Malnati"
 
 branding:
@@ -448,11 +448,11 @@ runs:
         cat "$REPORT" >> "$TEMP"
         mv "$TEMP" "$REPORT"
 
+        TEMPLATE_SOURCE="$DEFAULT_TEMPLATE"
         if [[ -n "$CUSTOM_TEMPLATE" && -f "$CUSTOM_TEMPLATE" ]]; then
-           TEMPLATE_SOURCE="$CUSTOM_TEMPLATE"
-        else
-           TEMPLATE_SOURCE="$DEFAULT_TEMPLATE"
+           TEMPLATE_SOURCE="$CUSTOM_TEMPLATE"   
         fi
+        echo "TEMPLATE_SOURCE: $TEMPLATE_SOURCE"
 
         export USER_BODY PR_NUM HEAD_REF CALLER SIGNATURE
         PR_BODY_FILE="/tmp/pr_b_body.md"
