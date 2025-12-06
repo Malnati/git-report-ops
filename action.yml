@@ -266,6 +266,10 @@ runs:
             "SIGNATURE": "${{ env.CODE_SIGNATURE }}",
             "EXISTING_PR_URL": "${{ steps.analyze_pr_status.outputs.existing_url }}"
           }
+        echo "::group::🐛 Debug Notify Existing Open"
+        echo "Status Code: $SIGNATURE passaed to Malnati/pr-comment@v7.0.0"
+        echo "Found: $EXISTING_PR_URL passaed to Malnati/pr-comment@v7.0.0"
+        echo "::endgroup::"
 
     - name: Notify Existing Closed
       if: steps.analyze_pr_status.outputs.status_code == 'CLOSED_UNMERGED'
@@ -280,6 +284,10 @@ runs:
             "SIGNATURE": "${{ env.CODE_SIGNATURE }}",
             "EXISTING_PR_URL": "${{ steps.analyze_pr_status.outputs.existing_url }}"
           }
+        echo "::group::🐛 Debug Notify Existing Closed"
+        echo "Status Code: $SIGNATURE passaed to Malnati/pr-comment@v7.0.0"
+        echo "Found: $EXISTING_PR_URL passaed to Malnati/pr-comment@v7.0.0"
+        echo "::endgroup::"
 
     - name: Notify New Start
       # Ajustado para ser mais explícito
@@ -294,6 +302,10 @@ runs:
           {
             "SIGNATURE": "${{ env.CODE_SIGNATURE }}"
           }
+        echo "::group::🐛 Debug Notify New Start"
+        echo "Status Code: $SIGNATURE passaed to Malnati/pr-comment@v7.0.0"
+        echo "Found: $EXISTING_PR_URL passaed to Malnati/pr-comment@v7.0.0"
+        echo "::endgroup::"
 
     # BLOCK 5: PUBLISH
     - id: prepare_files
