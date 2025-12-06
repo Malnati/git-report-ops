@@ -72,7 +72,11 @@ runs:
         INPUT_ID: ${{ inputs.notification_id }}
         CALLER: ${{ inputs.caller_id }}
       run: |
-        if [ -n "$INPUT_ID" ]; then FINAL_ID="$INPUT_ID"; else FINAL_ID="git-report-ops-$CALLER"; fi
+        if [ -n "$INPUT_ID" ]; 
+            then FINAL_ID="$INPUT_ID"; 
+        else 
+            FINAL_ID="git-report-ops-$CALLER"; 
+        fi
         echo "notify_id=$FINAL_ID" >> "$GITHUB_OUTPUT"
 
     # BLOCK 2: CIRCUIT BREAKER
