@@ -220,7 +220,14 @@ runs:
     
         REPORT_BRANCH="${PREFIX}/${HEAD_REF}"
         echo "report_branch: $REPORT_BRANCH"
-    
+        
+        if [ "$CURRENT_BRANCH" = "$REPORT_BRANCH" ]; then
+          echo "✅ Já está na própria report branch: $REPORT_BRANCH. Nada a fazer."
+          echo "report_branch=$REPORT_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "::endgroup::"
+          exit 0
+        fi
+        
         if git show-ref --verify --quiet "refs/heads/$REPORT_BRANCH"; then
           echo "⚠️ Branch já existe: $REPORT_BRANCH"
         else
