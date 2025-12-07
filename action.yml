@@ -274,51 +274,45 @@ runs:
         fi
         echo "::endgroup::"
     
-    - id: publish
-      if: steps.search_history.outputs.found == 'false' || steps.analyze_pr_status.outputs.status_code == 'NOT_FOUND'
+    - id: commit_report
       shell: bash
       env:
-        GH_TOKEN: ${{ inputs.token }}
-        HEAD_REF: ${{ github.head_ref }}
-        PREFIX: ${{ inputs.report_branch_prefix }}
         REPORT: ${{ inputs.report_file }}
-        TITLE: ${{ inputs.pr_title }}
-        BODY_FILE: ${{ steps.prepare_files.outputs.pr_body_file }}
+        REPORT_BRANCH: ${{ steps.branch_convention.outputs.report_branch }}
+        BOT_EMAIL: ${{ inputs.bot_email }}
+        BOT_NAME: ${{ inputs.bot_name }}
       run: |
-        echo "::group::🚀 Publishing"
-        
+        echo "::group::📝 Commit report file"
+    
+        echo "report_branch: $REPORT_BRANCH"
+        echo "report_file: $REPORT"
+    
+        git checkout "$REPORT_BRANCH"
+    
+        if [ ! -f "$REPORT" ]; then
+          echo "❌ Arquivo de relatório não encontrado: $REPORT"
+          echo "::endgroup::"
+          exit 1
+        fi
+    
+        git config user.email "$BOT_EMAIL"
+        if [ -n "${BOT_NAME:-}" ]; then
+          git config user.name "$BOT_NAME"
+        fi
+    
         git add "$REPORT"
-        git commit -m "docs: automated report [skip ci]"
-        git push -f origin "$REPORT_BRANCH"
-        
-        if gh pr create --base "$HEAD_REF" --head "$REPORT_BRANCH" --title "$TITLE" --body-file "$BODY_FILE"; then
-           echo "✅ New PR created."
-        else
-           echo "ℹ️ PR creation skipped. Updating existing..."
+    
+        if git diff --cached --quiet; then
+          echo "⚠️ Nenhuma alteração para commitar em $REPORT"
+          echo "::endgroup::"
+          exit 0
         fi
-        
-        PR_URL=$(gh pr view "$REPORT_BRANCH" --json url -q .url)
-        echo "PR_URL: $PR_URL"
-        if ! gh pr edit "$PR_URL" --body-file "$BODY_FILE"; then
-          echo "🔴 Erro ao atualizar PR em $PR_URL com o arquivo $BODY_FILE" >&2
-        fi
-        echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
-        echo "status=PUBLISHED" >> "$GITHUB_OUTPUT"
-        
-        echo "pr_url=$PR_URL"
-        echo "status=PUBLISHED"
+    
+        git commit -m "chore(report): update audit report"
+        git push origin "$REPORT_BRANCH"
+    
+        echo "✅ Report commit realizado em $REPORT_BRANCH"
         echo "::endgroup::"
-
-
-
-
-
-
-
-
-
-
-
 
 
 
