@@ -227,6 +227,10 @@ runs:
       run: |
         echo "::group::🛡️ Loop Protection Email Check"
         LAST=$(git log -1 --pretty=format:'%ae')
+        echo "git log -1: $LAST"
+        echo "head_ref=$HEAD_REF"
+        echo "report_branch_prefix=$PREFIX"
+        echo "bot_email=$BOT_EMAIL"
         if [[ "$LAST" == "$BOT_EMAIL" ]]; then
            echo "🛑 Loop Bot."
            echo "skip=true" >> "$GITHUB_OUTPUT"
