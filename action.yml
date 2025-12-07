@@ -230,6 +230,42 @@ runs:
         fi
         echo "::endgroup::"
 
+    # BLOCK: 🔎 LATEST COMMIT CANNOT BE BOT
+    # Se o ultimo commit do repositório for do bot, nesta mesma não é necessário continuar
+    - id: latest_commit_verify
+      shell: bash
+      env:
+        BOT_EMAIL: ${{ inputs.bot_email }}
+      run: |
+        echo "::group::🔎 Verify latest commit owner"
+    
+        git fetch --all --prune
+    
+        LATEST_SHA="$(git rev-list --all -n 1)"
+        echo "latest_sha: $LATEST_SHA"
+    
+        COMMIT_AUTHOR_RAW="$(git show -s --format='%an|%ae' "$LATEST_SHA")"
+        COMMIT_AUTHOR_NAME="${COMMIT_AUTHOR_RAW%%|*}"
+        COMMIT_AUTHOR_EMAIL="${COMMIT_AUTHOR_RAW##*|}"
+    
+        echo "commit_author_name: $COMMIT_AUTHOR_NAME"
+        echo "commit_author_email: $COMMIT_AUTHOR_EMAIL"
+        echo "bot_email: $BOT_EMAIL"
+    
+        if [ "$COMMIT_AUTHOR_EMAIL" = "$BOT_EMAIL" ]; then
+          echo "is_bot_commit=true" >> "$GITHUB_OUTPUT"
+          echo "✅ Latest commit belongs to bot."
+        else
+          echo "is_bot_commit=false" >> "$GITHUB_OUTPUT"
+          echo "✅ Latest commit belongs to another author."
+        fi
+    
+        echo "latest_sha=$LATEST_SHA" >> "$GITHUB_OUTPUT"
+        echo "latest_author_name=$COMMIT_AUTHOR_NAME" >> "$GITHUB_OUTPUT"
+        echo "latest_author_email=$COMMIT_AUTHOR_EMAIL" >> "$GITHUB_OUTPUT"
+    
+        echo "::endgroup::"
+    
     - id: publish
       if: steps.search_history.outputs.found == 'false' || steps.analyze_pr_status.outputs.status_code == 'NOT_FOUND'
       shell: bash
