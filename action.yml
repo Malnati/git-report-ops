@@ -1,4 +1,4 @@
-# Malnati/git-report-ops@v1.3.15
+# Malnati/git-report-ops@v1.3.16
 name: "Git Report Ops"
 description: "Engine de auditoria que assina o conteúdo, detecta renames e envia notificações padronizadas para Pull Requests."
 author: "Ricardo Malnati"
@@ -301,7 +301,7 @@ runs:
       uses: Malnati/pr-comment@v8.0.0
       env:
         REPORT: ${{ inputs.report_file }}
-        BODY_MESSAGE: "A branch do arquivo ${{ inputs.report_file }} é ${{ steps.branch_convention.outputs.report_branch }} e o commit referente a inclusão deste arquivo é ${{}}"
+        BODY_MESSAGE: "A branch do arquivo ${{ inputs.report_file }} é ${{ steps.branch_convention.outputs.report_branch }} e o commit referente a inclusão deste arquivo é ${{steps.outputs.commit_report.commit_sha}}"
       with:
         token: ${{ inputs.token }}
         pr_number: ${{ github.event.pull_request.number }}
