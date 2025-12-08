@@ -10,4 +10,7 @@
 > *Este comentário será atualizado quando o processo for concluído.*
 
 ---
-<div align="right"><sub>Gerado por <b>Git Report Ops</b></sub></div>
+<div align="right">
+  <sub>Automação de Governança</sub>
+  <sub>Malnati/git-report-ops/templates/pr-body-report.md</sub>
+</div>
