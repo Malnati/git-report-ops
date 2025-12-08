@@ -12,4 +12,7 @@
 | **Ação** | 👉 **[Revisar Relatório na PR](${NEW_PR_URL})** |
 
 ---
-<div align="right"><sub>Gerado por <b>Git Report Ops</b></sub></div>
+<div align="right">
+  <sub>Gerado por <b>Git Report Ops</b></sub>
+  <sub>Malnati/git-report-ops/templates/notify-new-success.md</sub>
+</div>
