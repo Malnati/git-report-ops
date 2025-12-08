@@ -1,4 +1,4 @@
-# Malnati/git-report-ops@v1.3.9
+# Malnati/git-report-ops@v1.3.11
 name: "Git Report Ops"
 description: "Engine de auditoria que assina o conteúdo, detecta renames e envia notificações padronizadas para Pull Requests."
 author: "Ricardo Malnati"
@@ -465,6 +465,8 @@ runs:
       env:
         SIGNATURE: ${{ env.CODE_SIGNATURE }}
         NEW_PR_URL: ${{ steps.publish.outputs.pr_url }}
+        ATTACHED_FILE: ${{ inputs.report_file }}
+        CALLER_ID: ${{ inputs.caller_id }}
       with:
         token: ${{ inputs.token }}
         pr_number: ${{ github.event.pull_request.number }}
@@ -479,7 +481,7 @@ runs:
         REPORT: ${{ inputs.report_file }}
         HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         SIGNATURE: ${{ env.CODE_SIGNATURE }}
-        CALLER: ${{ inputs.caller_id }}
+        CALLER_ID: ${{ inputs.caller_id }}
         PR_NUM: ${{ github.event.pull_request.number }}
         HEAD_REF: ${{ github.head_ref }}
         USER_BODY: ${{ inputs.pr_body }}
@@ -490,7 +492,7 @@ runs:
         TEMP="/tmp/meta.md"
         echo "" > "$TEMP"
         echo "> **Content Signature:** $SIGNATURE" >> "$TEMP"
-        echo "> **Caller ID:** $CALLER" >> "$TEMP"
+        echo "> **Caller ID:** $CALLER_ID" >> "$TEMP"
         echo "> **Source SHA:** $HEAD_SHA" >> "$TEMP"
         echo "> **Data:** $(date -u)" >> "$TEMP"
         echo "" >> "$TEMP"
@@ -499,17 +501,17 @@ runs:
 
         TEMPLATE_SOURCE="$DEFAULT_TEMPLATE"
         if [[ -n "$CUSTOM_TEMPLATE" && -f "$CUSTOM_TEMPLATE" ]]; then
-           TEMPLATE_SOURCE="$CUSTOM_TEMPLATE"   
+           TEMPLATE_SOURCE="$CUSTOM_TEMPLATE"
         fi
         echo "TEMPLATE_SOURCE: $TEMPLATE_SOURCE"
 
-        export USER_BODY PR_NUM HEAD_REF CALLER SIGNATURE
+        export USER_BODY PR_NUM HEAD_REF CALLER_ID SIGNATURE
         PR_BODY_FILE="/tmp/pr_b_body.md"
         envsubst < "$TEMPLATE_SOURCE" > "$PR_BODY_FILE"
-        
+
         echo "" >> "$PR_BODY_FILE"
         echo "" >> "$PR_BODY_FILE"
-        
+
         echo "pr_body_file=$PR_BODY_FILE" >> "$GITHUB_OUTPUT"
         echo "pr_body_file=$PR_BODY_FILE"
         echo "::endgroup::"
