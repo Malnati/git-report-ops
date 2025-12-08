@@ -1,4 +1,4 @@
-# Malnati/git-report-ops@v1.3.17
+# Malnati/git-report-ops@v1.3.18
 name: "Git Report Ops"
 description: "Engine de auditoria que assina o conteúdo, detecta renames e envia notificações padronizadas para Pull Requests."
 author: "Ricardo Malnati"
@@ -320,13 +320,19 @@ runs:
         echo "REPORT_BRANCH: $REPORT_BRANCH"
         if [ -n "$REPORT_BRANCH" ]; then
            PR_DATA=$(gh pr list --head "$REPORT_BRANCH" --state all --json state,url,mergedAt --limit 1)
-           echo "PR_DATA bruto:"
-           echo "$PR_DATA"
+           echo "PR_DATA: $PR_DATA"
+           
            STATE=$(echo "$PR_DATA" | jq -r '.[0].state')
            URL=$(echo "$PR_DATA" | jq -r '.[0].url')
            MERGED=$(echo "$PR_DATA" | jq -r '.[0].mergedAt')
+           
+           echo "state: $STATE" 
+           echo "url: $URL" 
+           echo "merged: $MERGED" 
+           
            echo "existing_url=$URL" >> "$GITHUB_OUTPUT"
            echo "pr_state=$STATE" >> "$GITHUB_OUTPUT"
+           
            if [ "$STATE" == "OPEN" ]; then
               echo "🟢 PR is OPEN."
               echo "status_code=OPEN_EXISTING" >> "$GITHUB_OUTPUT"
