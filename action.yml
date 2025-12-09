@@ -1,4 +1,4 @@
-# Malnati/git-report-ops@v1.3.21
+# Malnati/git-report-ops@v1.3.22
 name: "Git Report Ops"
 description: "Engine de auditoria que assina o conteúdo, detecta renames e envia notificações padronizadas para Pull Requests."
 author: "Ricardo Malnati"
@@ -320,10 +320,50 @@ runs:
         echo "::group::🔍 Analyzing Existing PR"
         echo "REPORT_BRANCH: $REPORT_BRANCH"
         echo "HEAD_REF: $HEAD_REF"
+
         PR_DATA=$(gh pr list --base "$HEAD_REF" --state all --json headRefName,state,url,mergedAt)
-        echo "PR_DATA: $PR_DATA"
-        EXISTING=$(echo "$PR_DATA" | jq -r '.[] | select(.headRefName | startswith("ops/report/latest/")) | @base64' | head -n1)
-        echo "EXISTING: $EXISTING"
+        echo "PR_DATA raw: $PR_DATA"
+
+        echo "Listing PR entries:"
+        echo "$PR_DATA" | jq -r '.[] | " - headRefName=\(.headRefName) state=\(.state) url=\(.url) mergedAt=\(.mergedAt)"'
+
+        FILTERED=$(echo "$PR_DATA" | jq -r '.[] | select(.headRefName | startswith("ops/report/latest/")) | @base64')
+        echo "Filtered candidates (base64):"
+        echo "$FILTERED" | nl -ba
+
+        BEST=""
+        BEST_PRIORITY=99
+
+        while IFS= read -r CAND; do
+          if [ -z "$CAND" ]; then
+            continue
+          fi
+
+          DECODED=$(echo "$CAND" | base64 --decode)
+          STATE=$(echo "$DECODED" | jq -r '.state')
+          URL=$(echo "$DECODED" | jq -r '.url')
+          HEAD=$(echo "$DECODED" | jq -r '.headRefName')
+          MERGED=$(echo "$DECODED" | jq -r '.mergedAt')
+
+          if [ "$STATE" = "OPEN" ]; then
+            PRIORITY=0
+          elif [ "$STATE" = "CLOSED" ] && [ "$MERGED" = "null" ]; then
+            PRIORITY=1
+          else
+            PRIORITY=2
+          fi
+
+          echo "Candidate: head=$HEAD state=$STATE merged=$MERGED priority=$PRIORITY"
+
+          if [ "$PRIORITY" -lt "$BEST_PRIORITY" ]; then
+            BEST_PRIORITY=$PRIORITY
+            BEST="$CAND"
+          fi
+        done <<< "$FILTERED"
+
+        EXISTING="$BEST"
+        echo "EXISTING (base64): $EXISTING"
+
         if [ -z "$EXISTING" ]; then
           echo "⚠️ No existing audit PR for this base branch."
           echo "status_code=NOT_FOUND" >> "$GITHUB_OUTPUT"
@@ -333,13 +373,16 @@ runs:
           URL=$(decode | jq -r '.url')
           HEAD=$(decode | jq -r '.headRefName')
           MERGED=$(decode | jq -r '.mergedAt')
+
           echo "existing_head: $HEAD"
           echo "state: $STATE"
           echo "url: $URL"
           echo "merged: $MERGED"
+
           echo "existing_url=$URL" >> "$GITHUB_OUTPUT"
           echo "existing_head=$HEAD" >> "$GITHUB_OUTPUT"
           echo "pr_state=$STATE" >> "$GITHUB_OUTPUT"
+
           if [ "$STATE" = "OPEN" ]; then
             echo "🟢 PR is OPEN."
             echo "status_code=OPEN_EXISTING" >> "$GITHUB_OUTPUT"
@@ -351,6 +394,7 @@ runs:
             echo "status_code=PREVIOUSLY_MERGED" >> "$GITHUB_OUTPUT"
           fi
         fi
+
         echo "::endgroup::"
 
     - id: publish_pr
