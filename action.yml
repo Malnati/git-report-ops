@@ -1,4 +1,4 @@
-# Malnati/git-report-ops@v1.3.23
+# Malnati/git-report-ops@v1.3.24
 name: "Git Report Ops"
 description: "Engine de auditoria que assina o conteúdo, detecta renames e envia notificações padronizadas para Pull Requests."
 author: "Ricardo Malnati"
@@ -409,6 +409,8 @@ runs:
         TITLE: ${{ inputs.pr_title }}
         PR_TEMPLATE_PATH: ${{ inputs.pr_template_path }}
         STATUS_CODE: ${{ steps.analyze_pr_status.outputs.status_code }}
+        EXISTING_URL: ${{ steps.analyze_pr_status.outputs.existing_url }}
+        EXISTING_HEAD: ${{ steps.analyze_pr_status.outputs.existing_head }}
       run: |
         echo "::group::🚀 Publishing"
         echo "STATUS_CODE: $STATUS_CODE"
@@ -426,8 +428,12 @@ runs:
           fi
         elif [ "$STATUS_CODE" = "OPEN_EXISTING" ]; then
           echo "🔹 PR existente aberta encontrada. Atualizando PR..."
-          PR_URL=$(gh pr view "$REPORT_BRANCH" --json url -q .url)
+          echo "EXISTING_HEAD: $EXISTING_HEAD"
+          echo "EXISTING_URL:  $EXISTING_URL"
+
+          PR_URL="$EXISTING_URL"
           echo "PR_URL: $PR_URL"
+
           if ! gh pr edit "$PR_URL" --body-file "$PR_TEMPLATE_PATH"; then
             echo "🔴 Erro ao atualizar PR em $PR_URL com o arquivo $PR_TEMPLATE_PATH" >&2
             exit 1
