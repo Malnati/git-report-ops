@@ -12,7 +12,7 @@ inputs:
     description: "GitHub token."
     required: true
   attached_file_path:
-    description: "Arquivo anexo ao repositório."
+    description: "Arquivo anexo ao repositório. (report.csv)"
     required: true
   branch_convention_prefix:
     required: false
@@ -25,10 +25,10 @@ inputs:
     default: "git-pr-ops@users.noreply.github.com"
   pr_template_path:
     required: true
-    default: "path/to/pr-template.md"
+    description: "Arquivo anexo ao repositório. (pr-template.md)"
   timeline_template_path:
     required: true
-    default: "path/to/timeline-template.md"
+    description: "Arquivo anexo ao repositório. (timeline-template.md)"
     
 runs:
   using: "composite"
@@ -376,6 +376,7 @@ runs:
       uses: Malnati/pr-comment@v8.0.0
       env:
         ATTACHED_FILE_PATH: ${{ inputs.attached_file_path }}
+        EXISTING_URL: ${{ steps.analyze_pr_status.outputs.existing_url }}
       with:
         token: ${{ inputs.token }}
         template_path: ${{ inputs.timeline_template_path }}
@@ -384,5 +385,6 @@ runs:
             {
               "ATTACHED_FILE_PATH": "${ATTACHED_FILE_PATH}",
               "BRANCH_CONVENTION": "${{ steps.branch_convention.outputs.branch_convention }}",
-              "COMMIT_SHA": "${{steps.commit_attached_file.outputs.commit_sha}}"
+              "COMMIT_SHA": "${{steps.commit_attached_file.outputs.commit_sha}}",
+              "PR_URL": ${EXISTING_URL}
             }
