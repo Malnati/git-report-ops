@@ -1,4 +1,4 @@
-# Malnati/git-report-ops@v1.3.35
+# Malnati/git-report-ops@v1.3.36
 name: "Git Pull Request Ops"
 description: "Engine de auditoria que assina o conteúdo, detecta renames e envia notificações padronizadas para Pull Requests."
 author: "Ricardo Malnati"
@@ -346,7 +346,6 @@ runs:
         fi
 
         echo "::endgroup::"
-
     - id: publish_pr
       name: "🚀 Publishing/Updating Pull Request"
       if: ${{ steps.analyze_pr_status.outputs.status_code != 'PREVIOUSLY_MERGED' && steps.analyze_pr_status.outputs.status_code != 'CLOSED_UNMERGED' }}
@@ -377,13 +376,16 @@ runs:
             --title "$TITLE" \
             --body-file "$PR_TEMPLATE_PATH" \
             --json url \
-            --jq '.url')"
+            --jq '.url' | tr -d '"')"
+
           if [ -z "$PR_URL" ]; then
             echo "🔴 Falha ao criar nova PR ou obter URL." >&2
             exit 1
           fi
+
           echo "PR_URL: $PR_URL"
           echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+          echo "pr_state=OPEN" >> "$GITHUB_OUTPUT"
           echo "✅ New PR created."
         elif [ "$STATUS_CODE" = "OPEN_EXISTING" ]; then
           echo "🔹 PR existente aberta encontrada. Atualizando PR..."
@@ -397,6 +399,7 @@ runs:
             echo "🔴 Erro ao atualizar PR em $PR_URL com o arquivo $PR_TEMPLATE_PATH" >&2
             exit 1
           fi
+
           echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
           echo "pr_state=OPEN" >> "$GITHUB_OUTPUT"
         else
