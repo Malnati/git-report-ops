@@ -32,7 +32,14 @@ inputs:
   timeline_template_path:
     required: true
     description: "Arquivo anexo ao repositório. (timeline-template.md)"
-
+  bot_name:
+    description: "Nome do bot usado nos commits."
+    required: false
+    default: "git-pr-ops-bot"
+  bot_name:
+    description: "Nome do bot usado nos commits."
+    required: false
+    default: "git-pr-ops-bot"    
 runs:
   using: "composite"
   steps:
@@ -41,6 +48,7 @@ runs:
       shell: bash
       env:
         TOKEN: ${{ inputs.token }}
+        PR_NUMBER: ${{ inputs.pr_number }}
         ATTACHED_FILE_PATH: ${{ inputs.attached_file_path }}
         CALLER_ID: ${{ inputs.caller_id }}
         BRANCH_CONVENTION_PREFIX: ${{ inputs.branch_convention_prefix }}
@@ -105,10 +113,10 @@ runs:
 
         if [ -z "$BRANCH_CONVENTION_PREFIX" ]; then
           echo "ℹ️ [branch_convention_prefix] Não informado. Branches de relatório serão criados sem prefixo dedicado, podendo conflitar com branches de desenvolvimento."
-          echo "   ➜ Defina um prefixo (ex.: 'audit/report') para isolar branches de relatório: '<prefix>/<branch_origem>'."
+          echo "   ➜ Defina um prefixo para isolar branches de relatório: '<prefix>/<branch_origem>'."
         else
-          echo "ℹ️ [branch_convention_prefix] Usando prefixo: '$BRANCH_CONVENTION_PREFIX'."
-          echo "   ➜ Os branches de relatório serão criados como '${BRANCH_CONVENTION_PREFIX}/<branch_de_origem>'."
+          echo "ℹ️ [branch_convention_prefix] Usando prefixo: '<prefix>/<sufixo_commit>'."
+          echo "   ➜ Os branches de relatório serão criados como '<prefix>/<sufixo_commit>'."
         fi
 
         if [ -z "$PR_TITLE" ]; then
@@ -128,10 +136,7 @@ runs:
           echo "ℹ️ [bot_email] Usando: '$BOT_EMAIL'."
           echo "   ➜ Este email será configurado como autor dos commits e usado na verificação de loops."
         fi
-
-        git config user.name "git-pr-ops-bot"
-        git config user.email "$BOT_EMAIL"
-
+        
         echo "✅ Input validation complete."
         echo "::endgroup::"
       
@@ -359,5 +364,5 @@ runs:
       uses: Malnati/pr-comment@v8.0.1
       with:
         token: ${{ inputs.token }}
-        PR_NUMBER: ${{ inputs.pr_number }}
+        pr_number: ${{ inputs.pr_number }}
         template_path: ${{ steps.render_timeline.outputs.path }}
