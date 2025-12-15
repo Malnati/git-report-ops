@@ -163,26 +163,10 @@ runs:
         set -euo pipefail
 
         if ! gh auth status >/dev/null 2>&1; then
-          err="$(mktemp)"
-          if ! gh auth login --with-token <<<"$GH_TOKEN" >/dev/null 2>"$err"; then
-            append_error_log "pr_info: gh auth login" "$err"
-            cat "$err" >&2
-            rm -f "$err"
-            exit 1
-          fi
-          append_error_log "pr_info: gh auth login (stderr)" "$err"
-          rm -f "$err"
+          with_error_log "pr_info: gh auth login" bash -c 'gh auth login --with-token <<<"$GH_TOKEN" >/dev/null'
         fi
 
-        err="$(mktemp)"
-        if ! PR_JSON="$(gh pr view "$PR_NUMBER" --json url,title,headRefName,headRefOid,baseRefName,baseRefOid 2>"$err")"; then
-          append_error_log "pr_info: gh pr view" "$err"
-          cat "$err" >&2
-          rm -f "$err"
-          exit 1
-        fi
-        append_error_log "pr_info: gh pr view (stderr)" "$err"
-        rm -f "$err"
+        PR_JSON="$(with_error_log "pr_info: gh pr view" gh pr view "$PR_NUMBER" --json url,title,headRefName,headRefOid,baseRefName,baseRefOid)"
 
         PR_URL=$(echo "$PR_JSON" | jq -r '.url')
         PR_TITLE=$(echo "$PR_JSON" | jq -r '.title')
@@ -217,15 +201,7 @@ runs:
         set -euo pipefail
 
         if ! gh auth status >/dev/null 2>&1; then
-          err="$(mktemp)"
-          if ! gh auth login --with-token <<<"$GH_TOKEN" >/dev/null 2>"$err"; then
-            append_error_log "derivated_prs_finder: gh auth login" "$err"
-            cat "$err" >&2
-            rm -f "$err"
-            exit 1
-          fi
-          append_error_log "derivated_prs_finder: gh auth login (stderr)" "$err"
-          rm -f "$err"
+          with_error_log "derivated_prs_finder: gh auth login" bash -c 'gh auth login --with-token <<<"$GH_TOKEN" >/dev/null'
         fi
 
         if [ -z "$SOURCE_BRANCH" ]; then
@@ -233,15 +209,7 @@ runs:
           exit 0
         fi
 
-        err="$(mktemp)"
-        if ! PR_LIST="$(gh pr list --state open --base "$SOURCE_BRANCH" --json number,url,headRefName,baseRefName 2>"$err")"; then
-          append_error_log "derivated_prs_finder: gh pr list" "$err"
-          cat "$err" >&2
-          rm -f "$err"
-          exit 1
-        fi
-        append_error_log "derivated_prs_finder: gh pr list (stderr)" "$err"
-        rm -f "$err"
+        PR_LIST="$(with_error_log "derivated_prs_finder: gh pr list" gh pr list --state open --base "$SOURCE_BRANCH" --json number,url,headRefName,baseRefName)"
 
         COUNT=$(echo "$PR_LIST" | jq 'length')
 
@@ -396,51 +364,19 @@ runs:
         set -euo pipefail
 
         if ! gh auth status >/dev/null 2>&1; then
-          err="$(mktemp)"
-          if ! gh auth login --with-token <<<"$GH_TOKEN" >/dev/null 2>"$err"; then
-            append_error_log "publish_pr: gh auth login" "$err"
-            cat "$err" >&2
-            rm -f "$err"
-            exit 1
-          fi
-          append_error_log "publish_pr: gh auth login (stderr)" "$err"
-          rm -f "$err"
+          with_error_log "publish_pr: gh auth login" bash -c 'gh auth login --with-token <<<"$GH_TOKEN" >/dev/null'
         fi
 
-        err="$(mktemp)"
-        if ! EXISTING_URL="$(gh pr list --state open --base "$BASE_BRANCH" --json url,headRefName --jq '([.[] | select(.headRefName | startswith(env.HEAD_PREFIX))][0].url) // ""' 2>"$err")"; then
-          append_error_log "publish_pr: gh pr list (existing url)" "$err"
-          cat "$err" >&2
-          rm -f "$err"
-          exit 1
-        fi
-        append_error_log "publish_pr: gh pr list (existing url) (stderr)" "$err"
-        rm -f "$err"
+        EXISTING_URL="$(with_error_log "publish_pr: gh pr list (existing url)" gh pr list --state open --base "$BASE_BRANCH" --json url,headRefName --jq '([.[] | select(.headRefName | startswith(env.HEAD_PREFIX))][0].url) // ""')"
 
         if [ -n "${EXISTING_URL:-}" ]; then
           echo "PR_URL: $EXISTING_URL"
           echo "pr_url=$EXISTING_URL" >> "$GITHUB_OUTPUT"
           echo "pr_state=OPEN" >> "$GITHUB_OUTPUT"
         else
-          err="$(mktemp)"
-          if ! gh pr create --base "$BASE_BRANCH" --head "$HEAD_BRANCH" --title "$TITLE" --body-file "$PR_TEMPLATE_PATH" >/dev/null 2>"$err"; then
-            append_error_log "publish_pr: gh pr create" "$err"
-            cat "$err" >&2
-            rm -f "$err"
-            exit 1
-          fi
-          append_error_log "publish_pr: gh pr create (stderr)" "$err"
-          rm -f "$err"
+          with_error_log "publish_pr: gh pr create" gh pr create --base "$BASE_BRANCH" --head "$HEAD_BRANCH" --title "$TITLE" --body-file "$PR_TEMPLATE_PATH" >/dev/null
 
-          err="$(mktemp)"
-          if ! PR_URL="$(gh pr view "$HEAD_BRANCH" --json url --jq '.url' 2>"$err")"; then
-            append_error_log "publish_pr: gh pr view (url)" "$err"
-            cat "$err" >&2
-            rm -f "$err"
-            exit 1
-          fi
-          append_error_log "publish_pr: gh pr view (url) (stderr)" "$err"
-          rm -f "$err"
+          PR_URL="$(with_error_log "publish_pr: gh pr view (url)" gh pr view "$HEAD_BRANCH" --json url --jq '.url')"
 
           echo "PR_URL: $PR_URL"
           echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
