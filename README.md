@@ -162,6 +162,4 @@ Uma nova versão do arquivo `${ATTACHED_FILE_PATH}` está disponível para revis
 
 -----
 
-\<div align="right"\>
-\<sub\>Mantido por \<a href="https://github.com/Malnati"\>Malnati\</a\>\</sub\>
-\</div\>
+<div align="right"> <sub>Mantido por <a href="https://github.com/Malnati">Malnati</a></sub> </div>
