@@ -1,4 +1,4 @@
-# Malnati/git-report-ops@v2.0.2
+# Malnati/git-report-ops@v2.0.4
 name: "Git Pull Request Ops"
 description: "Engine de auditoria que assina o conteúdo, detecta renames e envia notificações padronizadas para Pull Requests."
 author: "Ricardo Malnati"
@@ -320,22 +320,22 @@ runs:
         echo "✅ Attached file commit realizado em $BRANCH_CONVENTION (commit $COMMIT_SHA)"
         echo "::endgroup::"
 
-      - name: "🧾 Export basename"
-        id: attached_base_file
-        shell: bash
-        run: |
-          echo "attached_file_basename=$(basename '${{ inputs.attached_file_path }}')" >> "$GITHUB_OUTPUT"
+    - name: "🧾 Export basename"
+      id: attached_base_file
+      shell: bash
+      run: |
+        echo "attached_file_basename=$(basename '${{ inputs.attached_file_path }}')" >> "$GITHUB_OUTPUT"
 
-      - name: "📄 Render PR template"
-        id: render_pr
-        uses: Malnati/templateer@v1.0.1
-        env:
-          ATTACHED_FILE_PATH: ${{ steps.attached_base_file.outputs.attached_file_basename }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          BRANCH_CONVENTION: ${{ steps.branch_convention.outputs.branch_convention }}
-        with:
-          template: ${{ inputs.pr_template_path }}
-          result: /tmp/hardcode-pr.md
+    - name: "📄 Render PR template"
+      id: render_pr
+      uses: Malnati/templateer@v1.0.1
+      env:
+        ATTACHED_FILE_PATH: ${{ steps.attached_base_file.outputs.attached_file_basename }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+        BRANCH_CONVENTION: ${{ steps.branch_convention.outputs.branch_convention }}
+      with:
+        template: ${{ inputs.pr_template_path }}
+        result: /tmp/hardcode-pr.md
 
     - id: publish_pr
       name: "🚀 Publishing Pull Request"
@@ -371,7 +371,7 @@ runs:
         fi
 
     - name: "📄 Render timeline template"
-      id: render_pr
+      id: render_timeline
       uses: Malnati/templateer@v1.0.1
       env:
         ATTACHED_FILE_PATH: ${{ steps.attached_base_file.outputs.attached_file_basename }}
