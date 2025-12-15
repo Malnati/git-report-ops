@@ -7,7 +7,6 @@
 
 [![GitHub Release](https://img.shields.io/github/v/release/Malnati/ops-publisher?style=for-the-badge&color=0052CC&logo=github)](https://github.com/Malnati/ops-publisher/releases)
 [![License](https://img.shields.io/github/license/Malnati/ops-publisher?style=for-the-badge&color=grey)](LICENSE)
-[![Actions Status](https://img.shields.io/github/actions/workflow/status/Malnati/ops-publisher/ci.yml?style=for-the-badge&label=Build)](https://actions)
 
 <p align="center">
   <a href="#-como-funciona">Como Funciona</a> •
