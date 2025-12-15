@@ -154,7 +154,7 @@ runs:
         echo "::endgroup::"
 
     - id: pr_info
-      name: "🔍 Obter informações da PR de origem"
+      name: "🔍 Obtain information from the source PR"
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
@@ -191,7 +191,7 @@ runs:
         echo "source_branch_name=$SOURCE_BRANCH_NAME" >> "$GITHUB_OUTPUT"
         echo "source_branch_sha=$SOURCE_BRANCH_SHA" >> "$GITHUB_OUTPUT"
 
-    - name: "🔁 Encontrar PRs derivadas"
+    - name: "🔁 Find derived PRs"
       id: derivated_prs_finder
       shell: bash
       env:
@@ -272,7 +272,7 @@ runs:
         echo "attached_file_path: $ATTACHED_FILE_PATH"
 
         if [ -z "${BRANCH_CONVENTION:-}" ]; then
-          echo "❌ BRANCH_CONVENTION vazio. Verifique o bloco branch_convention."
+          echo "❌ BRANCH_CONVENTION Empty. Check the branch_convention block."
           echo "::endgroup::"
           exit 1
         fi
@@ -280,20 +280,20 @@ runs:
         git fetch --all --prune --quiet
 
         if git show-ref --verify --quiet "refs/heads/$BRANCH_CONVENTION"; then
-          echo "ℹ Branch já existe localmente: $BRANCH_CONVENTION"
+          echo "ℹ Branch already exists locally: $BRANCH_CONVENTION"
           git checkout "$BRANCH_CONVENTION"
         else
           if git ls-remote --exit-code --heads origin "$BRANCH_CONVENTION" >/dev/null 2>&1; then
-            echo "ℹ Branch existe no remoto, criando tracking local: $BRANCH_CONVENTION"
+            echo "ℹ Branch exists in the remote, creating local tracking: $BRANCH_CONVENTION"
             git checkout -q -b "$BRANCH_CONVENTION" "origin/$BRANCH_CONVENTION"
           else
-            echo "🆕 Criando nova branch a partir do HEAD atual: $BRANCH_CONVENTION"
+            echo "🆕 Creating a new branch from the current HEAD: $BRANCH_CONVENTION"
             git checkout -q -b "$BRANCH_CONVENTION"
           fi
         fi
 
         if [ ! -f "$ATTACHED_FILE_PATH" ]; then
-          echo "❌ Arquivo de relatório não encontrado: $ATTACHED_FILE_PATH"
+          echo "❌ Report file not found: $ATTACHED_FILE_PATH"
           echo "::endgroup::"
           exit 1
         fi
@@ -306,7 +306,7 @@ runs:
         git add "$ATTACHED_FILE_PATH"
 
         if git diff --cached --quiet; then
-          echo "⚠️ Nenhuma alteração para commitar em $ATTACHED_FILE_PATH"
+          echo "⚠️ No changes to commit to $ATTACHED_FILE_PATH"
           echo "::endgroup::"
           exit 0
         fi
@@ -317,7 +317,7 @@ runs:
         COMMIT_SHA="$(git rev-parse HEAD)"
         echo "commit_sha=$COMMIT_SHA" >> "$GITHUB_OUTPUT"
         echo "branch_convention=$BRANCH_CONVENTION" >> "$GITHUB_OUTPUT"
-        echo "✅ Attached file commit realizado em $BRANCH_CONVENTION (commit $COMMIT_SHA)"
+        echo "✅ Attached file commit performed in $BRANCH_CONVENTION (commit $COMMIT_SHA)"
         echo "::endgroup::"
 
     - name: "🧾 Export basename"
