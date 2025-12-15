@@ -36,10 +36,18 @@ inputs:
   bot_email:
     required: false
     default: "git-pr-ops@users.noreply.github.com"
-    
+  errors:
+    required: false
+    default: ".github/workflows/errors.log"
+
 runs:
   using: "composite"
   steps:
+    - name: "🧰 Setup error logging"
+      uses: Malnati/ops-errors@v1.0.0
+      with:
+        errors: ${{ inputs.errors }}
+
     - id: step_validate_inputs
       name: "🔧 Setup & Input Validation"
       shell: bash
@@ -53,6 +61,7 @@ runs:
         BOT_EMAIL: ${{ inputs.bot_email }}
         PR_TEMPLATE_PATH: ${{ inputs.pr_template_path }}
         TIMELINE_TEMPLATE_PATH: ${{ inputs.timeline_template_path }}
+        ERRORS_PATH: ${{ inputs.errors }}
       run: |
         echo "::group::🔧 Setup & Input Validation"
 
@@ -63,7 +72,7 @@ runs:
         else
           echo "✅ [token] Informado. A Action poderá criar/atualizar PRs e publicar comentários."
         fi
-        
+
         if [ -z "$PR_NUMBER" ]; then
           echo "❌ [pr_number] Obrigatório e não informado. Sem este pr_number a Action não consegue descobrir qual é a branch destino da nova PR."
           echo "   ➜ Defina 'pr_number' com 'N' ou '#N' da PR origem."
@@ -108,6 +117,13 @@ runs:
           echo "✅ [timeline_template_path] Encontrado em '$TIMELINE_TEMPLATE_PATH'. Será usado para exibir a mensagem no timeline da Pull Request."
         fi
 
+        if [ -z "$ERRORS_PATH" ]; then
+          echo "ℹ️ [errors] Não informado."
+          echo "   ➜ Defina 'errors' com o caminho de um arquivo de log customizado para centralizar as saídas de erro deste workflow."
+        else
+          echo "✅ [errors] Error logging habilitado em '$ERRORS_PATH'."
+        fi
+
         if [ -z "$BRANCH_CONVENTION_PREFIX" ]; then
           echo "ℹ️ [branch_convention_prefix] Não informado. Branches de relatório serão criados sem prefixo dedicado, podendo conflitar com branches de desenvolvimento."
           echo "   ➜ Defina um prefixo para isolar branches de relatório: '<prefix>/<branch_origem>'."
@@ -133,10 +149,10 @@ runs:
           echo "ℹ️ [bot_email] Usando: '$BOT_EMAIL'."
           echo "   ➜ Este email será configurado como autor dos commits e usado na verificação de loops."
         fi
-        
+
         echo "✅ Input validation complete."
         echo "::endgroup::"
-      
+
     - id: pr_info
       name: "🔍 Obter informações da PR de origem"
       shell: bash
@@ -145,27 +161,29 @@ runs:
         PR_NUMBER: ${{ inputs.pr_number }}
       run: |
         set -euo pipefail
-    
-        gh auth status || gh auth login --with-token <<<"$GH_TOKEN"
-    
-        PR_JSON=$(gh pr view "$PR_NUMBER" --json url,title,headRefName,headRefOid,baseRefName,baseRefOid)
-    
+
+        if ! gh auth status >/dev/null 2>&1; then
+          with_error_log "pr_info: gh auth login" bash -c 'gh auth login --with-token <<<"$GH_TOKEN" >/dev/null'
+        fi
+
+        PR_JSON="$(with_error_log "pr_info: gh pr view" gh pr view "$PR_NUMBER" --json url,title,headRefName,headRefOid,baseRefName,baseRefOid)"
+
         PR_URL=$(echo "$PR_JSON" | jq -r '.url')
         PR_TITLE=$(echo "$PR_JSON" | jq -r '.title')
-    
+
         DEST_BRANCH_NAME=$(echo "$PR_JSON" | jq -r '.baseRefName')
         DEST_BRANCH_SHA=$(echo "$PR_JSON" | jq -r '.baseRefOid')
-    
+
         SOURCE_BRANCH_NAME=$(echo "$PR_JSON" | jq -r '.headRefName')
         SOURCE_BRANCH_SHA=$(echo "$PR_JSON" | jq -r '.headRefOid')
-    
+
         echo "PR_URL=$PR_URL"
         echo "PR_TITLE=$PR_TITLE"
         echo "DEST_BRANCH_NAME=$DEST_BRANCH_NAME"
         echo "DEST_BRANCH_SHA=$DEST_BRANCH_SHA"
         echo "SOURCE_BRANCH_NAME=$SOURCE_BRANCH_NAME"
         echo "SOURCE_BRANCH_SHA=$SOURCE_BRANCH_SHA"
-    
+
         echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
         echo "pr_title=$PR_TITLE" >> "$GITHUB_OUTPUT"
         echo "dest_branch_name=$DEST_BRANCH_NAME" >> "$GITHUB_OUTPUT"
@@ -181,37 +199,36 @@ runs:
         SOURCE_BRANCH: ${{ steps.pr_info.outputs.source_branch_name }}
       run: |
         set -euo pipefail
-    
-        gh auth status || gh auth login --with-token <<<"$GH_TOKEN"
-    
+
+        if ! gh auth status >/dev/null 2>&1; then
+          with_error_log "derivated_prs_finder: gh auth login" bash -c 'gh auth login --with-token <<<"$GH_TOKEN" >/dev/null'
+        fi
+
         if [ -z "$SOURCE_BRANCH" ]; then
           echo "⚠ SOURCE_BRANCH vazio. Nada a fazer."
           exit 0
         fi
-    
-        PR_LIST=$(gh pr list \
-          --state open \
-          --base "$SOURCE_BRANCH" \
-          --json number,url,headRefName,baseRefName)
-    
+
+        PR_LIST="$(with_error_log "derivated_prs_finder: gh pr list" gh pr list --state open --base "$SOURCE_BRANCH" --json number,url,headRefName,baseRefName)"
+
         COUNT=$(echo "$PR_LIST" | jq 'length')
-    
+
         echo "🔍 PRs derivadas abertas com destino em '$SOURCE_BRANCH': total=$COUNT"
-    
+
         echo "$PR_LIST" | jq -c '.[]' | while read -r pr; do
           NUM=$(echo "$pr" | jq -r '.number')
           URL=$(echo "$pr" | jq -r '.url')
           HEAD=$(echo "$pr" | jq -r '.headRefName')
           BASE=$(echo "$pr" | jq -r '.baseRefName')
-    
+
           echo "- #$NUM $URL"
           echo "  head: $HEAD"
           echo "  base: $BASE"
         done
-    
+
         echo "derived_count=$COUNT" >> "$GITHUB_OUTPUT"
         echo "derived_prs_json=$PR_LIST" >> "$GITHUB_OUTPUT"
-    
+
     - id: branch_convention
       name: "🪾 Branch Convention"
       shell: bash
@@ -220,26 +237,26 @@ runs:
       run: |
         set -euo pipefail
         echo "::group::🪾 Define branch convention"
-    
+
         if [ -z "${BRANCH_CONVENTION_PREFIX:-}" ]; then
           BRANCH_CONVENTION_PREFIX="ops/report/latest"
         fi
-    
-        git fetch --all --prune
-    
+
+        git fetch --all --prune --quiet
+
         LATEST_SHA="$(git rev-parse HEAD)"
         CUSTOM_SUFFIX="${LATEST_SHA: -10}"
-    
+
         BRANCH_CONVENTION="${BRANCH_CONVENTION_PREFIX}/${CUSTOM_SUFFIX}"
-    
+
         echo "prefix: $BRANCH_CONVENTION_PREFIX"
         echo "latest_sha: $LATEST_SHA"
         echo "custom_suffix: $CUSTOM_SUFFIX"
         echo "branch_convention: $BRANCH_CONVENTION"
-    
+
         echo "branch_convention=$BRANCH_CONVENTION" >> "$GITHUB_OUTPUT"
         echo "::endgroup::"
-        
+
     - id: commit_attached_file
       name: "📝 Commit File"
       shell: bash
@@ -260,7 +277,7 @@ runs:
           exit 1
         fi
 
-        git fetch --all --prune
+        git fetch --all --prune --quiet
 
         if git show-ref --verify --quiet "refs/heads/$BRANCH_CONVENTION"; then
           echo "ℹ Branch já existe localmente: $BRANCH_CONVENTION"
@@ -268,10 +285,10 @@ runs:
         else
           if git ls-remote --exit-code --heads origin "$BRANCH_CONVENTION" >/dev/null 2>&1; then
             echo "ℹ Branch existe no remoto, criando tracking local: $BRANCH_CONVENTION"
-            git checkout -b "$BRANCH_CONVENTION" "origin/$BRANCH_CONVENTION"
+            git checkout -q -b "$BRANCH_CONVENTION" "origin/$BRANCH_CONVENTION"
           else
             echo "🆕 Criando nova branch a partir do HEAD atual: $BRANCH_CONVENTION"
-            git checkout -b "$BRANCH_CONVENTION"
+            git checkout -q -b "$BRANCH_CONVENTION"
           fi
         fi
 
@@ -280,7 +297,7 @@ runs:
           echo "::endgroup::"
           exit 1
         fi
-        
+
         git config user.email "$BOT_EMAIL"
         if [ -n "${BOT_NAME:-}" ]; then
           git config user.name "$BOT_NAME"
@@ -303,36 +320,23 @@ runs:
         echo "✅ Attached file commit realizado em $BRANCH_CONVENTION (commit $COMMIT_SHA)"
         echo "::endgroup::"
 
-    - name: "🪄 Exportar basename ATTACHED_FILE_PATH"
-      id: reexport_basename_attached_file
-      shell: bash
-      env:
-        PR_NUMBER: ${{ inputs.pr_number }}
-        ATTACHED_FILE_PATH: ${{ inputs.attached_file_path }}
-      run: |
-        set -euo pipefail
-        FILENAME="$(basename "$ATTACHED_FILE_PATH")"
-        echo "Basename for ATTACHED_FILE_PATH: $FILENAME"
-        echo "PR_NUMBER for inputs.attached_file_path: $PR_NUMBER"
-        echo "ATTACHED_FILE_PATH=$FILENAME" >> "$GITHUB_ENV"
-        echo "PR_NUMBER=$PR_NUMBER" >> "$GITHUB_ENV"
-        
-    - name: "🪄 Exportar variáveis para o PR template"
-      id: export_vars_pr_template
-      shell: bash
-      run: |
-        set -euo pipefail
-        env | grep -v '^GITHUB_' | while IFS='=' read -r key value; do
-          printf '%s=%s\n' "$key" "$value" >> "$GITHUB_ENV"
-        done
-          
-    - name: "📄 Render PR template"
-      id: render_pr
-      uses: Malnati/template-render@v1.0.1
-      with:
-        template: ${{ inputs.pr_template_path }}
-        output: /tmp/hardcode-pr.md
-        
+      - name: "🧾 Export basename"
+        id: attached_base_file
+        shell: bash
+        run: |
+          echo "attached_file_basename=$(basename '${{ inputs.attached_file_path }}')" >> "$GITHUB_OUTPUT"
+
+      - name: "📄 Render PR template"
+        id: render_pr
+        uses: Malnati/templateer@v1.0.1
+        env:
+          ATTACHED_FILE_PATH: ${{ steps.attached_base_file.outputs.attached_file_basename }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          BRANCH_CONVENTION: ${{ steps.branch_convention.outputs.branch_convention }}
+        with:
+          template: ${{ inputs.pr_template_path }}
+          result: /tmp/hardcode-pr.md
+
     - id: publish_pr
       name: "🚀 Publishing Pull Request"
       shell: bash
@@ -345,40 +349,38 @@ runs:
         HEAD_PREFIX: ops/files/
       run: |
         set -euo pipefail
-    
-        gh auth status || gh auth login --with-token <<<"$GH_TOKEN"
-    
-        EXISTING_URL="$(
-          gh pr list \
-            --state open \
-            --base "$BASE_BRANCH" \
-            --json url,headRefName \
-            --jq '([.[] | select(.headRefName | startswith(env.HEAD_PREFIX))][0].url) // ""'
-        )"
-    
+
+        if ! gh auth status >/dev/null 2>&1; then
+          with_error_log "publish_pr: gh auth login" bash -c 'gh auth login --with-token <<<"$GH_TOKEN" >/dev/null'
+        fi
+
+        EXISTING_URL="$(with_error_log "publish_pr: gh pr list (existing url)" gh pr list --state open --base "$BASE_BRANCH" --json url,headRefName --jq '([.[] | select(.headRefName | startswith(env.HEAD_PREFIX))][0].url) // ""')"
+
         if [ -n "${EXISTING_URL:-}" ]; then
           echo "PR_URL: $EXISTING_URL"
           echo "pr_url=$EXISTING_URL" >> "$GITHUB_OUTPUT"
           echo "pr_state=OPEN" >> "$GITHUB_OUTPUT"
         else
-          gh pr create \
-            --base "$BASE_BRANCH" \
-            --head "$HEAD_BRANCH" \
-            --title "$TITLE" \
-            --body-file "$PR_TEMPLATE_PATH"
-    
-          PR_URL="$(gh pr view "$HEAD_BRANCH" --json url --jq '.url')"
+          with_error_log "publish_pr: gh pr create" gh pr create --base "$BASE_BRANCH" --head "$HEAD_BRANCH" --title "$TITLE" --body-file "$PR_TEMPLATE_PATH" >/dev/null
+
+          PR_URL="$(with_error_log "publish_pr: gh pr view (url)" gh pr view "$HEAD_BRANCH" --json url --jq '.url')"
+
           echo "PR_URL: $PR_URL"
           echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
           echo "pr_state=OPEN" >> "$GITHUB_OUTPUT"
         fi
-        
+
     - name: "📄 Render timeline template"
-      id: render_timeline
-      uses: Malnati/template-render@v1.0.1
+      id: render_pr
+      uses: Malnati/templateer@v1.0.1
+      env:
+        ATTACHED_FILE_PATH: ${{ steps.attached_base_file.outputs.attached_file_basename }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+        BRANCH_CONVENTION: ${{ steps.branch_convention.outputs.branch_convention }}
+        PR_URL: ${{ steps.publish_pr.outputs.pr_url }}
       with:
         template: ${{ inputs.timeline_template_path }}
-        output: /tmp/hardcode-timeline.md
+        result: /tmp/hardcode-timeline.md
           
     - id: timeline_notification
       name: "🔔 Notify over PR Timeline"
