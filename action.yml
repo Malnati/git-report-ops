@@ -189,10 +189,7 @@ runs:
           exit 0
         fi
     
-        PR_LIST=$(gh pr list \
-          --state open \
-          --base "$SOURCE_BRANCH" \
-          --json number,url,headRefName,baseRefName)
+        PR_LIST=$(gh pr list --state open --base "$SOURCE_BRANCH" --json number,url,headRefName,baseRefName)
     
         COUNT=$(echo "$PR_LIST" | jq 'length')
     
@@ -348,25 +345,14 @@ runs:
     
         gh auth status || gh auth login --with-token <<<"$GH_TOKEN"
     
-        EXISTING_URL="$(
-          gh pr list \
-            --state open \
-            --base "$BASE_BRANCH" \
-            --json url,headRefName \
-            --jq '([.[] | select(.headRefName | startswith(env.HEAD_PREFIX))][0].url) // ""'
-        )"
+        EXISTING_URL="$(gh pr list --state open --base "$BASE_BRANCH" --json url,headRefName --jq '([.[] | select(.headRefName | startswith(env.HEAD_PREFIX))][0].url) // ""')"
     
         if [ -n "${EXISTING_URL:-}" ]; then
           echo "PR_URL: $EXISTING_URL"
           echo "pr_url=$EXISTING_URL" >> "$GITHUB_OUTPUT"
           echo "pr_state=OPEN" >> "$GITHUB_OUTPUT"
         else
-          gh pr create \
-            --base "$BASE_BRANCH" \
-            --head "$HEAD_BRANCH" \
-            --title "$TITLE" \
-            --body-file "$PR_TEMPLATE_PATH"
-    
+          gh pr create --base "$BASE_BRANCH" --head "$HEAD_BRANCH" --title "$TITLE" --body-file "$PR_TEMPLATE_PATH"
           PR_URL="$(gh pr view "$HEAD_BRANCH" --json url --jq '.url')"
           echo "PR_URL: $PR_URL"
           echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
